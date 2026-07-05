@@ -1,6 +1,7 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { motion } from "framer-motion";
 import { ensureSession } from "@/lib/supabase/session";
 import {
   awaitResponse,
@@ -12,6 +13,16 @@ import {
   type VisibilityWatcher,
 } from "@/lib/engine/measurement";
 import { saveTrial } from "@/lib/engine/save-trials";
+import {
+  getPersonalBest,
+  getPersonalBestServerSnapshot,
+  recordIfBest,
+  subscribePersonalBest,
+} from "@/lib/trigger/personal-best";
+import { useMotionPreference } from "@/lib/hooks/use-motion-preference";
+import { Button } from "@/components/ui/button";
+import { ReflexGauge, type GaugeStatus } from "@/components/trigger/reflex-gauge";
+import { ReducedMotionToggle } from "@/components/lab/reduced-motion-toggle";
 
 // Trigger skeleton: 20–30 trials.
 const TRIAL_COUNT = 25;
@@ -36,10 +47,26 @@ export default function TriggerPage() {
   const [message, setMessage] = useState("");
   const [trialLabel, setTrialLabel] = useState("");
   const [trials, setTrials] = useState<CompletedTrial[]>([]);
+  const [liveTrial, setLiveTrial] = useState<CompletedTrial | null>(null);
   const [saveFailures, setSaveFailures] = useState(0);
   const [fatalError, setFatalError] = useState<string | null>(null);
+  const [reducedMotion, toggleReducedMotion] = useMotionPreference();
+  const personalBest = useSyncExternalStore(
+    subscribePersonalBest,
+    getPersonalBest,
+    getPersonalBestServerSnapshot
+  );
   const targetRef = useRef<HTMLDivElement>(null);
   const runningRef = useRef(false);
+
+  // Display-only: updates the on-screen personal best whenever a valid trial
+  // completes. Does not affect what was already saved to Supabase.
+  useEffect(() => {
+    if (!liveTrial) return;
+    if (liveTrial.correct && !liveTrial.discarded && liveTrial.rtMs !== null) {
+      recordIfBest(liveTrial.rtMs);
+    }
+  }, [liveTrial]);
 
   async function runTask() {
     if (runningRef.current) return;
@@ -58,7 +85,7 @@ export default function TriggerPage() {
 
       for (let i = 0; i < TRIAL_COUNT; i++) {
         setTrialLabel(`Trial ${i + 1} of ${TRIAL_COUNT}`);
-        const trial = await runTrial(i, watcher);
+        const trial = await runTrial(i, watcher, setLiveTrial);
         completed.push(trial);
         savePromises.push(
           saveTrial({
@@ -97,7 +124,8 @@ export default function TriggerPage() {
 
   async function runTrial(
     trialIndex: number,
-    watcher: VisibilityWatcher
+    watcher: VisibilityWatcher,
+    onResult: (trial: CompletedTrial) => void
   ): Promise<CompletedTrial> {
     const target = targetRef.current;
     if (!target) throw new Error("Stimulus element missing.");
@@ -117,8 +145,7 @@ export default function TriggerPage() {
     if (raceResult !== "foreperiod-elapsed") {
       // Responded before the stimulus appeared: false start, no RT.
       setMessage("Too soon!");
-      await sleep(800);
-      return {
+      const trial: CompletedTrial = {
         trialIndex,
         foreperiodMs,
         response: raceResult,
@@ -126,6 +153,9 @@ export default function TriggerPage() {
         correct: false,
         discarded: watcher.compromised,
       };
+      onResult(trial);
+      await sleep(800);
+      return trial;
     }
 
     const onsetMs = await showStimulusAtNextFrame(target);
@@ -151,8 +181,7 @@ export default function TriggerPage() {
       // No response within the deadline: miss, no RT.
       responder.cancel();
       setMessage("Too slow!");
-      await sleep(800);
-      return {
+      const trial: CompletedTrial = {
         trialIndex,
         foreperiodMs,
         response: null,
@@ -160,13 +189,14 @@ export default function TriggerPage() {
         correct: false,
         discarded: watcher.compromised,
       };
+      onResult(trial);
+      await sleep(800);
+      return trial;
     }
 
     const rtMs = measuredRt;
     setMessage(`${Math.round(rtMs)} ms`);
-    await sleep(600);
-
-    return {
+    const trial: CompletedTrial = {
       trialIndex,
       foreperiodMs,
       response,
@@ -174,6 +204,10 @@ export default function TriggerPage() {
       correct: true,
       discarded: watcher.compromised,
     };
+    onResult(trial);
+    await sleep(600);
+
+    return trial;
   }
 
   const validTrials = trials.filter(
@@ -186,73 +220,162 @@ export default function TriggerPage() {
       : null;
   const medianRt = validRts.length > 0 ? median(validRts) : null;
 
+  const gaugeStatus: GaugeStatus = !liveTrial
+    ? "idle"
+    : liveTrial.rtMs !== null
+      ? "hit"
+      : liveTrial.response !== null
+        ? "false-start"
+        : "miss";
+
   return (
-    <main style={{ padding: 24 }}>
-      <h1>Trigger — reaction time</h1>
+    <div className="lab flex min-h-screen flex-col items-center bg-background px-6 py-10 text-foreground">
+      <div className="flex w-full max-w-md items-center justify-between">
+        <span className="font-mono text-[11px] uppercase tracking-widest text-muted-foreground">
+          Cognitive Performance Lab
+        </span>
+        <div className="flex items-center gap-3">
+          {personalBest !== null && (
+            <motion.span
+              key={personalBest}
+              initial={reducedMotion ? false : { scale: 1.3 }}
+              animate={{ scale: 1 }}
+              transition={{ duration: 0.4 }}
+              className="font-mono text-[11px] uppercase tracking-widest text-primary"
+            >
+              PB {Math.round(personalBest)} ms
+            </motion.span>
+          )}
+          <ReducedMotionToggle
+            reducedMotion={reducedMotion}
+            onToggle={toggleReducedMotion}
+          />
+        </div>
+      </div>
 
-      {phase === "idle" && (
-        <>
-          <p>
-            When the box appears, tap or press any key as fast as you can.{" "}
-            {TRIAL_COUNT} trials.
+      <motion.div
+        initial={reducedMotion ? false : { opacity: 0, y: 16 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.5 }}
+        className="mt-10 flex w-full max-w-md flex-col items-center gap-8 rounded-3xl border border-border bg-card px-8 py-10 shadow-2xl"
+      >
+        <div className="flex flex-col items-center gap-1 text-center">
+          <h1 className="text-3xl font-semibold uppercase tracking-[0.2em]">
+            Trigger
+          </h1>
+          <p className="font-mono text-xs uppercase tracking-widest text-muted-foreground">
+            Reflex Console
           </p>
-          <button onClick={runTask}>Start</button>
-        </>
-      )}
+        </div>
 
-      {phase === "running" && (
-        <>
-          <p>{trialLabel}</p>
-          <p>{message}</p>
-        </>
-      )}
+        {phase === "running" && (
+          <span className="font-mono text-xs uppercase tracking-widest text-muted-foreground">
+            {trialLabel}
+          </span>
+        )}
 
-      <div
-        ref={targetRef}
-        data-target
-        style={{
-          width: 160,
-          height: 160,
-          background: "red",
-          visibility: "hidden",
-          marginTop: 16,
-        }}
-      />
+        <ReflexGauge
+          rtMs={liveTrial?.rtMs ?? null}
+          status={gaugeStatus}
+          reducedMotion={reducedMotion}
+        />
 
-      {phase === "done" && (
-        <>
-          <h2>Summary</h2>
-          {fatalError && <p>Error: {fatalError}</p>}
-          <p>
-            Valid trials: {validTrials.length} / {trials.length}
-            {meanRt !== null && <> · mean {Math.round(meanRt)} ms</>}
-            {medianRt !== null && <> · median {Math.round(medianRt)} ms</>}
-          </p>
-          <p>
-            False starts:{" "}
-            {trials.filter((t) => !t.correct && t.response !== null).length} ·
-            Misses:{" "}
-            {trials.filter((t) => !t.correct && t.response === null).length} ·
-            Discarded (tab hidden):{" "}
-            {trials.filter((t) => t.discarded).length} · Save failures:{" "}
-            {saveFailures}
-          </p>
-          <ol start={1}>
-            {trials.map((t) => (
-              <li key={t.trialIndex}>
-                {t.rtMs !== null
-                  ? `${Math.round(t.rtMs)} ms`
-                  : t.response !== null
-                    ? "false start"
-                    : "miss (no response)"}
-                {t.discarded ? " (discarded — tab hidden)" : ""}
-              </li>
-            ))}
-          </ol>
-          <button onClick={runTask}>Run again</button>
-        </>
-      )}
-    </main>
+        <p className="min-h-[1.25rem] font-mono text-sm uppercase tracking-widest text-foreground">
+          {phase === "running" ? message : ""}
+        </p>
+
+        <div
+          ref={targetRef}
+          data-target
+          className="h-36 w-36 rounded-full"
+          style={{
+            visibility: "hidden",
+            transition: "none",
+            background:
+              "radial-gradient(circle at 35% 35%, #93c5fd, var(--primary) 55%, #1d4ed8 100%)",
+            boxShadow:
+              "0 0 70px 14px color-mix(in srgb, var(--primary) 55%, transparent)",
+          }}
+        />
+
+        {phase === "idle" && (
+          <div className="flex flex-col items-center gap-4 text-center">
+            <p className="max-w-xs text-sm text-muted-foreground">
+              When the signal lights up, tap or press any key as fast as you
+              can. {TRIAL_COUNT} trials.
+            </p>
+            <Button size="lg" onClick={runTask}>
+              Start
+            </Button>
+          </div>
+        )}
+
+        {phase === "done" && (
+          <motion.div
+            initial={reducedMotion ? false : { opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.4 }}
+            className="flex w-full flex-col items-center gap-4"
+          >
+            <h2 className="font-mono text-xs uppercase tracking-widest text-muted-foreground">
+              Session Complete
+            </h2>
+            {fatalError && (
+              <p className="text-sm text-destructive">Error: {fatalError}</p>
+            )}
+            <div className="grid w-full grid-cols-2 gap-3">
+              <StatBox
+                label="Valid"
+                value={`${validTrials.length} / ${trials.length}`}
+              />
+              <StatBox
+                label="Mean"
+                value={meanRt !== null ? `${Math.round(meanRt)} ms` : "—"}
+              />
+              <StatBox
+                label="Median"
+                value={medianRt !== null ? `${Math.round(medianRt)} ms` : "—"}
+              />
+              <StatBox
+                label="Errors"
+                value={`${
+                  trials.filter((t) => !t.correct && t.response !== null)
+                    .length
+                } FS · ${
+                  trials.filter((t) => !t.correct && t.response === null)
+                    .length
+                } miss`}
+              />
+            </div>
+            <p className="font-mono text-[11px] uppercase tracking-widest text-muted-foreground">
+              Discarded: {trials.filter((t) => t.discarded).length} · Save
+              failures: {saveFailures}
+            </p>
+            <details className="w-full">
+              <summary className="cursor-pointer font-mono text-[11px] uppercase tracking-widest text-muted-foreground">
+                Per-trial log
+              </summary>
+              <ol className="mt-2 space-y-1 font-mono text-xs text-muted-foreground">
+                {trials.map((t) => (
+                  <li key={t.trialIndex}>
+                    {String(t.trialIndex + 1).padStart(2, "0")} ·{" "}
+                    {t.rtMs !== null
+                      ? `${Math.round(t.rtMs)} ms`
+                      : t.response !== null
+                        ? "false start"
+                        : "miss"}
+                    {t.discarded ? " (discarded)" : ""}
+                  </li>
+                ))}
+              </ol>
+            </details>
+            <Button size="lg" onClick={runTask}>
+              Run again
+            </Button>
+          </motion.div>
+        )}
+      </motion.div>
+    </div>
   );
 }
 
@@ -262,4 +385,15 @@ function median(values: number[]): number {
   return sorted.length % 2 === 0
     ? (sorted[mid - 1] + sorted[mid]) / 2
     : sorted[mid];
+}
+
+function StatBox({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-xl border border-border bg-background/40 px-3 py-2 text-center">
+      <div className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+        {label}
+      </div>
+      <div className="mt-1 font-mono text-sm text-foreground">{value}</div>
+    </div>
+  );
 }

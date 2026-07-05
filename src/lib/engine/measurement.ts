@@ -39,9 +39,12 @@ export type CapturedResponse = {
   key?: string;
 };
 
+const RESPONSE_KEY = " "; // Space bar — the only key accepted as a response.
+
 /**
- * Resolves with the next pointerdown or keydown on window. Attach before the
- * foreperiod starts so premature responses (false starts) are captured too.
+ * Resolves with the next pointerdown, or a Space keydown, on window. Attach
+ * before the foreperiod starts so premature responses (false starts) are
+ * captured too.
  */
 export function awaitResponse(): {
   promise: Promise<CapturedResponse>;
@@ -64,8 +67,9 @@ export function awaitResponse(): {
     };
 
     const onKeyDown = (e: KeyboardEvent) => {
-      const timestamp = performance.now();
       if (e.repeat) return;
+      if (e.key !== RESPONSE_KEY) return;
+      const timestamp = performance.now();
       finish({ timestamp, type: "keydown", key: e.key });
     };
 
