@@ -74,8 +74,8 @@ Lock-On (Multiple Object Tracking) — done (logic; skin pending) — showpiece
 
 - Entry + segment question (v1 defaults to Performance Seeker).
 - Universal measurement engine — built once (Phase 1), reused for all 5 games. performance.now() on requestAnimationFrame, Page Visibility discard watcher, shared saveTrial/ensureSession.
-- Practice round before each scored game — not yet built, still pending (Phase 3.1/4).
-- Sequence wrapper — one "Cognitive Performance Lab" flow, progress bar, shared session_id — not yet built (Phase 3.1, next up).
+- Practice round before each scored game — built (Phase 3.1). Reuses each game's existing scored-mode trial loop via a mode flag, not a parallel implementation; saved with is_practice: true, excluded from scoring.
+- Sequence wrapper — the "[BRAND] Cognitive Performance Lab" flow at /test: intro → practice+scored ×5 games → complete, progress bar across all 10 steps — built (Phase 3.1). See §9b for the run_id/session policy it resolved.
 - Scoring engine — built, tested, verified. See §9a below for full detail.
 - Results screen — headline score, domain radar, one genuine strength + one growth area, honest product tie-in, email capture, shareable result card — not yet built (Phase 3.3).
 - Placeholder product CTA — links nowhere yet; a later team wires it to the agency site.
@@ -147,9 +147,13 @@ Testing: 34 Vitest unit tests against synthetic fixtures (perfect performer, cha
 
 Verified twice against real Supabase data: once with a clean 5-domain session (all games completed, headline "Peak session"), once with a broken 3-domain session (2 domains genuinely unplayed/discarded, correct renormalization, "Strong").
 
-### 9b. Known gap — repeat-play / norm-building filtering (design note, not yet built)
+### 9b. Repeat-play / run identity — resolved in Phase 3.1
 
-If a user retakes the test in the same browser session, trials append to the same session_id rather than starting a fresh one. No policy exists yet for how the sequence wrapper/results screen should handle this — options include scoring only the latest complete run per game, or stamping runs with an explicit run identifier. Decide this when building the sequence wrapper (Phase 3.1), not before.
+Resolved: a client-minted run_id (uuid, via crypto.randomUUID()) is stamped on every trial and results row of one full-sequence attempt, generated fresh each time the sequence wrapper's intro screen starts a run. session_id stays the visitor's stable anonymous identity; run_id distinguishes attempts, so a retake in the same browser can never mix trials with an earlier attempt. The scoring fetch layer (fetchRunTrials) filters by exact session_id + run_id. Standalone/direct game routes (e.g. /circuit) always pass run_id: null and are never scored. Redo policy: whole-sequence restart only — no per-game mid-sequence redo, to avoid retake-until-lucky cherry-picking of the headline score.
+
+Migration: trials gained run_id (uuid, nullable) and is_practice (boolean, default false); results gained run_id.
+
+Verified against live Supabase data across two real runs (one abandoned via a mid-sequence reload, one completed): the two run_ids never overlapped or cross-contaminated; the abandoned run's trials sit orphaned under their own run_id with no results row and are structurally excluded from the completed run's scoring by the exact-run_id filter; the is_practice exclusion was shown to matter in practice, not just in theory — up to a 13-point swing in one domain, and in Circuit's case a structural scoring corruption (a nonsensical "22 of 16 nodes reached" result) if practice rows were left unfiltered, since Circuit's trial_index is a tap index that restarts at 0 for both the practice and scored segments.
 
 Separately, and more important for the future: when population norms are eventually built (post-v1), do not naively average all sessions' raw metrics. A session that only completed 2 of 5 games (e.g., abandoned after finding Trigger hard) should not silently bias norms for domains it never reached — this would introduce survivorship bias (norms for later domains would only reflect users who didn't quit early, which correlates with unknown factors). Norm-building must filter per-domain, not per-session — a partial session should contribute its valid domains to those domains' norm pools, and nothing to the domains it never reached. This is already structurally possible (each domain scorer independently reports whether it has sufficient data) but the norm-aggregation logic itself doesn't exist yet and shouldn't be built until real user volume justifies it.
 
@@ -162,7 +166,7 @@ Test-data hygiene: the trials table has been truncated multiple times during dev
 | 0 — Foundations | Live empty site | Done — Next.js+Tailwind+shadcn deployed to Vercel; design tokens set; Supabase (schema, RLS, anonymous auth) created; env vars set in both .env.local and Vercel |
 | 1 — Engine + Trigger | One game measuring + saving correctly | Done — engine verified, Trigger built/skinned/reviewed/committed/pushed |
 | 2 — Rest of battery | All 5 games | Done — Gatekeeper, Echo, Circuit, Lock-On all built and logic-verified. Skins pending for Echo, Circuit, Lock-On (Gatekeeper and Trigger skins done) |
-| 3 — Flow + scoring + results | Complete funnel | In progress. 3.2 (scoring engine) done. 3.1 (sequence wrapper) and 3.3 (results screen) not yet started |
+| 3 — Flow + scoring + results | Complete funnel | In progress. 3.1 (sequence wrapper) and 3.2 (scoring engine) done. 3.3 (results screen) not yet started — next up |
 | 4 — Polish + PWA | Feels pro, works on phones | Not started — shell pages, responsive pass, animations, PWA manifest all pending |
 | 5 — Integration + handoff | Live + connected | Not started |
 
@@ -209,6 +213,6 @@ Model-tier guidance established during Phase 1-3.2: reserve the highest-capabili
 
 In v1: Performance Seeker flow, all five games, honest self-relative scoring, results + email capture + share, responsive + PWA, deployed.
 
-Deferred (correctly): percentiles (need accumulated norms, and a norm-aggregation approach that filters per-domain, not per-session — see §9b), brain-fog & healthy-aging segments, blog/SEO, deep scientific validation and final claim/legal review (doctor/dev team's job), product-site CTA wiring, repeat-play run-identifier policy (decide at Phase 3.1).
+Deferred (correctly): percentiles (need accumulated norms, and a norm-aggregation approach that filters per-domain, not per-session — see §9b), brain-fog & healthy-aging segments, blog/SEO, deep scientific validation and final claim/legal review (doctor/dev team's job), product-site CTA wiring.
 
 Ship the beachhead. Don't try to build the whole vision in one pass.

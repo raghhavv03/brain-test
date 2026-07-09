@@ -12,12 +12,19 @@ Vitest for scoring-engine unit tests.
 ## Current Status (see docs/project-reference.md §10 for the full build-order table)
 Phases 0-2 done: all five games (Trigger, Gatekeeper, Echo, Circuit, Lock-On)
 built, logic-verified against real Supabase data, reviewed. Skins done for
-Trigger and Gatekeeper; pending for Echo, Circuit, Lock-On.
-Phase 3 in progress: 3.2 (scoring engine, src/lib/scoring/) is done — 34
-Vitest tests plus two real-data verification passes (a clean 5-domain run and
-a broken 3-domain run with insufficient-data handling). Not yet started:
-3.1 (sequence wrapper — needs a repeat-play/session_id policy decided, see
-project-reference.md §9b) and 3.3 (results screen).
+Trigger and Gatekeeper; pending for Echo, Circuit, Lock-On (deferred as a
+batch to Phase 4, for visual consistency with the sequence wrapper).
+Phase 3 in progress: 3.1 (sequence wrapper, /test) and 3.2 (scoring engine,
+src/lib/scoring/) are both done. 3.1 built the intro → practice+scored ×5
+games → complete flow, added a client-minted run_id (uuid, one per
+full-sequence attempt) and an is_practice flag (excluded from scoring),
+resolved the repeat-play/session_id policy from §9b, and was verified
+against live Supabase data across two real runs (one abandoned mid-sequence,
+one completed) — confirmed no run_id cross-contamination and that the
+practice-row filter has real, sometimes large, effects on domain scores.
+3.2 has 34 Vitest tests plus two real-data verification passes (a clean
+5-domain run and a broken 3-domain run with insufficient-data handling).
+Not yet started: 3.3 (results screen) — next up.
 Read docs/project-reference.md for full detail on any past phase before
 starting new work — don't re-derive decisions already made there.
  
