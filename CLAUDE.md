@@ -7,6 +7,19 @@ Audience for v1: Performance Seekers (professionals + competitive-exam students)
 ## Stack
 Next.js (App Router) + TypeScript · Tailwind · shadcn/ui · Framer Motion ·
 Supabase (Postgres) · Vercel · Recharts (results chart). Timing: performance.now().
+Vitest for scoring-engine unit tests.
+
+## Current Status (see docs/project-reference.md §10 for the full build-order table)
+Phases 0-2 done: all five games (Trigger, Gatekeeper, Echo, Circuit, Lock-On)
+built, logic-verified against real Supabase data, reviewed. Skins done for
+Trigger and Gatekeeper; pending for Echo, Circuit, Lock-On.
+Phase 3 in progress: 3.2 (scoring engine, src/lib/scoring/) is done — 34
+Vitest tests plus two real-data verification passes (a clean 5-domain run and
+a broken 3-domain run with insufficient-data handling). Not yet started:
+3.1 (sequence wrapper — needs a repeat-play/session_id policy decided, see
+project-reference.md §9b) and 3.3 (results screen).
+Read docs/project-reference.md for full detail on any past phase before
+starting new work — don't re-derive decisions already made there.
  
 ## Skills & Plugins — use these whenever relevant, don't wait to be asked
 Project skills (in .claude/skills/, auto-load, follow without exception):

@@ -10,10 +10,18 @@ export const GO_COUNT = 32;
 export const NO_GO_COUNT = 8;
 export const TOTAL_TRIALS = GO_COUNT + NO_GO_COUNT;
 
-export function generateTrialSequence(): StimulusType[] {
+/**
+ * Defaults are the fixed scored skeleton (32/8). The parameters exist only
+ * for the shorter practice round (same 80/20 ratio, same fixed-count
+ * shuffle) — never pass other values for a scored run.
+ */
+export function generateTrialSequence(
+  goCount: number = GO_COUNT,
+  noGoCount: number = NO_GO_COUNT
+): StimulusType[] {
   const sequence: StimulusType[] = [
-    ...Array<StimulusType>(GO_COUNT).fill("go"),
-    ...Array<StimulusType>(NO_GO_COUNT).fill("no-go"),
+    ...Array<StimulusType>(goCount).fill("go"),
+    ...Array<StimulusType>(noGoCount).fill("no-go"),
   ];
 
   for (let i = sequence.length - 1; i > 0; i--) {

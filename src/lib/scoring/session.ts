@@ -1,19 +1,29 @@
 /**
- * Supabase I/O for the scoring engine: fetch a session's raw trials, save the
- * computed result to `results`. All scoring math stays in the pure modules
- * (domains.ts / brain-score.ts) so it is unit-testable and re-runnable.
+ * Supabase I/O for the scoring engine: fetch the raw trials of one run, save
+ * the computed result to `results`. All scoring math stays in the pure
+ * modules (domains.ts / brain-score.ts) so it is unit-testable and
+ * re-runnable.
  */
 
 import { supabase } from "@/lib/supabase/client";
 import type { BrainScoreResult, StoredTrial } from "./types";
 
-export async function fetchSessionTrials(
-  sessionId: string
+/**
+ * Scored trials of one full-sequence run. Filtering by run_id (not just
+ * session_id) is what keeps a retake in the same browser from mixing trials
+ * across attempts; practice trials and standalone plays (run_id null) never
+ * appear here.
+ */
+export async function fetchRunTrials(
+  sessionId: string,
+  runId: string
 ): Promise<StoredTrial[]> {
   const { data, error } = await supabase
     .from("trials")
     .select("game, trial_index, stimulus, response, rt_ms, correct, discarded")
     .eq("session_id", sessionId)
+    .eq("run_id", runId)
+    .eq("is_practice", false)
     .order("trial_index", { ascending: true });
   if (error) throw error;
   return (data ?? []) as StoredTrial[];
@@ -21,10 +31,12 @@ export async function fetchSessionTrials(
 
 export async function saveResult(
   sessionId: string,
+  runId: string,
   result: BrainScoreResult
 ): Promise<void> {
   const { error } = await supabase.from("results").insert({
     session_id: sessionId,
+    run_id: runId,
     // Full domain breakdown, including insufficient_data statuses and
     // reasons — the results screen reads these to show the "not enough
     // clean data" state instead of silently dropping a domain.

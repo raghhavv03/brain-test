@@ -20,20 +20,28 @@ function randomLetter(exclude?: Letter): Letter {
   return pool[Math.floor(Math.random() * pool.length)];
 }
 
-export function generateItemSequence(): Letter[] {
-  const sequence: Letter[] = new Array(TOTAL_ITEMS);
+/**
+ * Defaults are the fixed scored skeleton (24 items / 7 targets). The
+ * parameters exist only for the shorter practice round, which uses the same
+ * forced-target construction — never pass other values for a scored run.
+ */
+export function generateItemSequence(
+  totalItems: number = TOTAL_ITEMS,
+  targetCount: number = TARGET_COUNT
+): Letter[] {
+  const sequence: Letter[] = new Array(totalItems);
   sequence[0] = randomLetter();
   sequence[1] = randomLetter();
 
-  // Eligible target positions: index 2..TOTAL_ITEMS-1 (items 3..24).
-  const eligible = Array.from({ length: TOTAL_ITEMS - 2 }, (_, k) => k + 2);
+  // Eligible target positions: index 2..totalItems-1 (items 3 onward).
+  const eligible = Array.from({ length: totalItems - 2 }, (_, k) => k + 2);
   for (let i = eligible.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
     [eligible[i], eligible[j]] = [eligible[j], eligible[i]];
   }
-  const targetPositions = new Set(eligible.slice(0, TARGET_COUNT));
+  const targetPositions = new Set(eligible.slice(0, targetCount));
 
-  for (let i = 2; i < TOTAL_ITEMS; i++) {
+  for (let i = 2; i < totalItems; i++) {
     sequence[i] = targetPositions.has(i)
       ? sequence[i - 2]
       : randomLetter(sequence[i - 2]);

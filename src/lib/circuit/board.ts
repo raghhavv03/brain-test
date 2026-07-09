@@ -17,10 +17,17 @@ export const BOARD = { width: 600, height: 400 };
 const SPAWN_MARGIN = 40; // keep node centers away from the board edges
 const MIN_GAP = 70; // min center-to-center separation, so tap targets don't crowd
 
-export function createBoard(): CircuitNode[] {
+/**
+ * Defaults to the fixed scored skeleton (all 16 nodes). The parameter exists
+ * only for the practice round's 6-node prefix (1-A-2-B-3-C) — never pass a
+ * different sequence for a scored run.
+ */
+export function createBoard(
+  sequence: readonly NodeId[] = SEQUENCE
+): CircuitNode[] {
   const positions: { x: number; y: number }[] = [];
   let attempts = 0;
-  while (positions.length < SEQUENCE.length) {
+  while (positions.length < sequence.length) {
     // Practically unreachable at this density, but never loop unbounded on
     // an unlucky layout — throw away the partial placement and start over.
     if (++attempts > 5000) {
@@ -34,5 +41,5 @@ export function createBoard(): CircuitNode[] {
     }
     positions.push({ x, y });
   }
-  return SEQUENCE.map((id, i) => ({ id, x: positions[i].x, y: positions[i].y }));
+  return sequence.map((id, i) => ({ id, x: positions[i].x, y: positions[i].y }));
 }
