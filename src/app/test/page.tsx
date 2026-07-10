@@ -11,12 +11,13 @@
  * as a new run; the abandoned partial run stays in the table under its own
  * run_id and is simply never scored.
  *
- * Flow/state pass only — the visual skin comes later (Phase 4), and the
- * results screen (Phase 3.3) will replace the plain complete screen.
+ * Flow/state pass only — the visual skin comes later (Phase 4). The complete
+ * step renders the Phase 3.3 results screen.
  */
 
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
+import { ResultsScreen } from "@/components/results/results-screen";
 import { TriggerGame } from "@/components/games/trigger-game";
 import { GatekeeperGame } from "@/components/games/gatekeeper-game";
 import { EchoGame } from "@/components/games/echo-game";
@@ -87,21 +88,8 @@ export default function TestPage() {
   }
 
   if (step >= TOTAL_STEPS) {
-    return (
-      <main className="lab flex min-h-screen flex-col items-center justify-center gap-6 bg-background px-6 py-16 text-center text-foreground">
-        <SequenceProgress step={step} />
-        <h1 className="text-3xl font-semibold tracking-tight">
-          Sequence complete
-        </h1>
-        <p className="max-w-sm text-sm text-muted-foreground">
-          All five games are recorded. Your results screen is coming in the
-          next build phase — for now this run is safely stored.
-        </p>
-        <Button size="lg" onClick={startRun}>
-          Start a new run
-        </Button>
-      </main>
-    );
+    // runId is always set once past the intro; the guard is for the type system.
+    return runId ? <ResultsScreen runId={runId} onRestart={startRun} /> : null;
   }
 
   const gameIndex = Math.floor(step / 2);

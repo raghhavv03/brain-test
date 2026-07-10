@@ -34,17 +34,24 @@ export async function saveResult(
   runId: string,
   result: BrainScoreResult
 ): Promise<void> {
-  const { error } = await supabase.from("results").insert({
-    session_id: sessionId,
-    run_id: runId,
-    // Full domain breakdown, including insufficient_data statuses and
-    // reasons — the results screen reads these to show the "not enough
-    // clean data" state instead of silently dropping a domain.
-    sub_scores: result.domains,
-    headline_score:
-      result.headline.status === "scored" ? result.headline.score : null,
-    band_label:
-      result.headline.status === "scored" ? result.headline.band : null,
-  });
+  // Idempotent per run: results.run_id is unique, and a re-save of the same
+  // run recomputes an identical result (pure function over the same trials),
+  // so ON CONFLICT DO NOTHING is correct — it also needs no UPDATE policy
+  // under RLS. Guards against remounts of the results screen re-inserting.
+  const { error } = await supabase.from("results").upsert(
+    {
+      session_id: sessionId,
+      run_id: runId,
+      // Full domain breakdown, including insufficient_data statuses and
+      // reasons — the results screen reads these to show the "not enough
+      // clean data" state instead of silently dropping a domain.
+      sub_scores: result.domains,
+      headline_score:
+        result.headline.status === "scored" ? result.headline.score : null,
+      band_label:
+        result.headline.status === "scored" ? result.headline.band : null,
+    },
+    { onConflict: "run_id", ignoreDuplicates: true }
+  );
   if (error) throw error;
 }
