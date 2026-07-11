@@ -30,6 +30,7 @@ import {
 } from "recharts";
 import { DOMAIN_KEYS, type DomainScores } from "@/lib/scoring/types";
 import { DOMAIN_LABELS } from "./labels";
+import { radarPolygon } from "./radar-geometry";
 
 type AxisEntry = {
   key: string;
@@ -55,7 +56,7 @@ const ACCENT = "var(--primary)";
 const MAX_SIZE = 400;
 const LABEL_MARGIN = 64;
 
-function polarPoint(cx: number, cy: number, r: number, angleDeg: number) {
+export function polarPoint(cx: number, cy: number, r: number, angleDeg: number) {
   return {
     x: cx + r * Math.cos(-angleDeg * RADIAN),
     y: cy + r * Math.sin(-angleDeg * RADIAN),
@@ -153,33 +154,24 @@ function ScoreShape({
   const cx = points[0].cx ?? 0;
   const cy = points[0].cy ?? 0;
 
-  const scoredIdx = points
-    .map((p, i) => ({ p, i }))
-    .filter(({ p }) => p.payload?.scored)
-    .map(({ i }) => i);
+  const scoredFlags = points.map((p) => !!p.payload?.scored);
+  const {
+    vertexIndices: scoredIdx,
+    edges: edgeIdx,
+    hasFill,
+  } = radarPolygon(scoredFlags);
 
-  // Edges between consecutive scored vertices (pentagon order, wrapping);
-  // an edge that skips one or more unmeasured axes is drawn dashed.
-  const edges: { from: RadarShapePoint; to: RadarShapePoint; bridged: boolean }[] = [];
-  if (scoredIdx.length === 2) {
-    const [a, b] = scoredIdx;
-    const gap = Math.min((b - a) % points.length, (a - b + points.length) % points.length);
-    edges.push({ from: points[a], to: points[b], bridged: gap > 1 });
-  } else if (scoredIdx.length >= 3) {
-    for (let j = 0; j < scoredIdx.length; j++) {
-      const a = scoredIdx[j];
-      const b = scoredIdx[(j + 1) % scoredIdx.length];
-      const gap = (b - a + points.length) % points.length;
-      edges.push({ from: points[a], to: points[b], bridged: gap > 1 });
-    }
-  }
+  const edges = edgeIdx.map((e) => ({
+    from: points[e.from],
+    to: points[e.to],
+    bridged: e.bridged,
+  }));
 
-  const fillPath =
-    scoredIdx.length >= 3
-      ? scoredIdx
-          .map((i, j) => `${j === 0 ? "M" : "L"}${points[i].x},${points[i].y}`)
-          .join(" ") + " Z"
-      : null;
+  const fillPath = hasFill
+    ? scoredIdx
+        .map((i, j) => `${j === 0 ? "M" : "L"}${points[i].x},${points[i].y}`)
+        .join(" ") + " Z"
+    : null;
 
   return (
     <g>

@@ -24,8 +24,10 @@ import {
   type DomainKey,
 } from "@/lib/scoring/types";
 import { DomainRadar } from "./domain-radar";
+import { EmailCapture } from "./email-capture";
 import { pickInsights } from "./insights";
 import { DOMAIN_LABELS } from "./labels";
+import { ShareButton } from "./share-button";
 
 type LoadState =
   | { status: "loading" }
@@ -190,6 +192,12 @@ export function ResultsView({
             Start a new run
           </Button>
         </section>
+
+        <EmailCapture />
+
+        {headline.status === "scored" && (
+          <ShareButton headline={headline} domains={domains} />
+        )}
 
         {saveFailed && (
           <p className="text-xs text-muted-foreground">
