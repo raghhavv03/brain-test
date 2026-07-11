@@ -77,7 +77,7 @@ Lock-On (Multiple Object Tracking) — done (logic; skin pending) — showpiece
 - Practice round before each scored game — built (Phase 3.1). Reuses each game's existing scored-mode trial loop via a mode flag, not a parallel implementation; saved with is_practice: true, excluded from scoring.
 - Sequence wrapper — the "[BRAND] Cognitive Performance Lab" flow at /test: intro → practice+scored ×5 games → complete, progress bar across all 10 steps — built (Phase 3.1). See §9b for the run_id/session policy it resolved.
 - Scoring engine — built, tested, verified. See §9a below for full detail.
-- Results screen — headline score, domain radar, one genuine strength + one growth area, honest product tie-in, email capture, shareable result card — not yet built (Phase 3.3).
+- Results screen — headline score, domain radar, one genuine strength + one growth area, honest product tie-in, email capture, shareable result card — built, verified, committed (Phase 3.3). See §9c for detail.
 - Placeholder product CTA — links nowhere yet; a later team wires it to the agency site.
 - Privacy + disclaimer — consent line, visible "not a medical test." Not yet built.
 - Analytics events (Phase 5): start, per-game complete, finish, email, CTA click.
@@ -120,7 +120,14 @@ Raw data always kept.
 - sessions — id, created_at, segment, user_agent, consent.
 - trials — id, session_id, game, trial_index, stimulus, response, rt_ms, correct, discarded, created_at. (The scientific record — never skip.)
 - results — id, session_id, sub_scores (jsonb), headline_score, band_label, computed_at.
-- leads — id, session_id, email, created_at, cta_clicked.
+- leads — id, session_id, email, created_at, cta_clicked. `session_id` has a
+  unique constraint (Phase 3.3b) — one lead per session, not per run (leads
+  has no run_id column; a retake that already submitted an email is
+  recognized as already-submitted, not re-inserted). Deliberately NOT unique
+  on email: two different anonymous sessions submitting the same email must
+  not collide, since a uniqueness violation there would leak "this email
+  already exists" across sessions, breaking the per-session RLS isolation
+  below.
 
 Enable Row Level Security — a session should only write and read its own trials (anonymous auth: auth.uid() = the session's own id). This has been empirically confirmed multiple times during development — cross-session reads correctly return empty, including via direct SQL through the anon key. Only a service-role key (dashboard-only, never client-side) can bypass this, which is intentional and should stay that way; it means no client bug or compromised anon key can ever leak or corrupt another session's data.
 
@@ -159,6 +166,81 @@ Separately, and more important for the future: when population norms are eventua
 
 Test-data hygiene: the trials table has been truncated multiple times during development to remove verification artifacts (both Claude Code's automated test rows and manual playthrough rows) before further work that reads from the table (e.g., scoring-engine calibration). Always truncate before any work that treats table contents as meaningful data — verification sessions and real user sessions must never be mixed, since nothing in the schema currently distinguishes them.
 
+### 9c. Results Screen — built and verified (Phase 3.3 complete)
+
+Located in src/components/results/. Built in two reviewed, live-verified parts.
+
+**Part (a) — score display, radar, insights.** `results-screen.tsx` fetches a
+completed run's trials, calls the (untouched) scoring engine, and persists
+the result via `saveResult`'s idempotent upsert on `results.run_id` (unique
+constraint added this phase — a plain insert would double-write on a
+StrictMode remount or any future re-render of the results screen).
+`domain-radar.tsx` renders the five-domain Recharts radar; the core design
+problem was that a missing measurement must never read as a zero (0 is a
+real score elsewhere on the same chart) or as a broken chart (a missing
+axis). Solved with: the five-axis frame always renders in full regardless of
+data; the score polygon only has vertices on scored domains; edges that
+bridge across an unscored axis are dashed; the unscored spoke itself is
+dashed/greyed with an explicit "no clean data" label tag, never silently
+absent. `insights.ts` picks one strength + one growth domain — eligibility
+is `status === "scored"` only (an unmeasured domain is never a strength or a
+weakness), ties break on canonical domain order, and an all-equal-score run
+reports "balanced" rather than fabricating a growth area. All three states
+(full run, partial/insufficient-domains, no-headline) were verified via a
+temporary fixture route (deleted before each commit) and cross-checked
+against real Supabase runs, including hand-tracing two real interrupted runs
+(a tab-switch mid-Echo, a tab-switch mid-Lock-On) to confirm the Page
+Visibility discard watcher excluded exactly the invisible-window trials and
+nothing leaked either direction.
+
+Shared radar geometry was then extracted into `radar-geometry.ts`
+(`radarPolygon` — pure vertex/edge-selection index math) and
+`domain-radar.tsx` exports `polarPoint` — a deliberately minimal,
+behavior-preserving refactor (re-verified pixel-identical against all three
+radar states afterward) done specifically so the share-card SVG builder in
+part (b) could reuse the same geometry instead of re-deriving it.
+
+**Part (b) — email capture + share card.** `src/lib/supabase/leads.ts`
+mirrors the existing `ensureSession()` insert+23505 convention (plain
+insert, not upsert, so "duplicate" is a distinguishable UI state, not a
+silent no-op) — see the `leads.session_id` unique-constraint note in §9.
+Live-verified at three levels: the UI showed the correct duplicate message
+on a resubmit from the same session, the message is only reachable via a
+real `error.code === "23505"`, and a direct data-layer read confirmed
+exactly one row exists (the second attempt was blocked, not duplicated).
+
+The share card (`share-card.ts` + `share-button.tsx`) builds a fixed
+1080×1080 SVG string (hardcoded lab-theme colors, not CSS variables — it's
+rasterized off-DOM via canvas with no page style context), serializes it to
+a PNG Blob, and shares it via `navigator.share()`/`canShare()` — the
+`canShare({files})` check matters specifically because `navigator.share`
+alone doesn't guarantee file-sharing support. The PNG is pre-rendered in a
+`useEffect` on mount, not inside the click handler — calling `share()` after
+an async SVG→canvas→blob pipeline risks losing "user activation" on Safari,
+so by click time the Blob already exists and `share()` fires synchronously
+within the click's call stack. No file-sharing support (or the share call
+throwing anything other than a user-cancelled `AbortError`) falls back to a
+plain download.
+
+Two real bugs were caught during live verification, both illustrating why
+"clean code review + doesn't crash" isn't sufficient — see §11's standing
+lesson on this:
+1. The email form's `type="email"` input let the browser's native
+   validation UI intercept invalid submissions before the app's own themed
+   error message could ever render — invisible in a code read, only visible
+   by actually submitting bad input in a browser. Fixed with `noValidate` on
+   the form (native format hinting is still useful for the mobile keyboard
+   layout, so `type="email"` stayed).
+2. The share card's axis-label `<text>` elements were missing their `y`
+   attribute entirely (only `x` was set) — SVG defaults omitted
+   positional attributes to 0, so all five labels rendered stacked at the
+   top of the image instead of around the radar. This produced a
+   visually-plausible-looking image at a glance (score, band, and the
+   radar shape itself were all still positioned correctly) — the defect
+   only became obvious by rendering the actual generated PNG in an
+   isolated tab and reading it pixel-by-pixel, not from the SVG string
+   looking reasonable at a skim.
+
 ## 10. Build Order
 
 | Phase | Goal | Status |
@@ -166,8 +248,8 @@ Test-data hygiene: the trials table has been truncated multiple times during dev
 | 0 — Foundations | Live empty site | Done — Next.js+Tailwind+shadcn deployed to Vercel; design tokens set; Supabase (schema, RLS, anonymous auth) created; env vars set in both .env.local and Vercel |
 | 1 — Engine + Trigger | One game measuring + saving correctly | Done — engine verified, Trigger built/skinned/reviewed/committed/pushed |
 | 2 — Rest of battery | All 5 games | Done — Gatekeeper, Echo, Circuit, Lock-On all built and logic-verified. Skins pending for Echo, Circuit, Lock-On (Gatekeeper and Trigger skins done) |
-| 3 — Flow + scoring + results | Complete funnel | In progress. 3.1 (sequence wrapper) and 3.2 (scoring engine) done. 3.3 (results screen) not yet started — next up |
-| 4 — Polish + PWA | Feels pro, works on phones | Not started — shell pages, responsive pass, animations, PWA manifest all pending |
+| 3 — Flow + scoring + results | Complete funnel | Done — 3.1 (sequence wrapper), 3.2 (scoring engine), and 3.3 (results screen: score/radar/insights + email capture/share card) all built, verified against live Supabase data, reviewed, committed |
+| 4 — Polish + PWA | Feels pro, works on phones | Not started — shell pages, remaining game skins (Echo, Circuit, Lock-On), responsive pass, animations, PWA manifest all pending |
 | 5 — Integration + handoff | Live + connected | Not started |
 
 ## 11. Testing & Verification Protocol
@@ -184,6 +266,9 @@ Additional lessons from Phase 1-3.2, now standing practice:
 - A code-level review pass (pr-review-toolkit) finding "clean" is not the end of verification — real bugs have been caught after a clean review by re-checking against actual gameplay data (e.g., Gatekeeper's listener-attach ordering, Circuit's completion-time derivability, Lock-On's complement-set flaw were all found through manual play + data inspection, not static review alone). Treat review-pass and real-data verification as complementary, not substitutes for each other.
 - RLS blocks cross-session reads by design — verifying a specific session's data sometimes requires reading it from the same browser/session that created it (a temporary /dev/... debug page, deleted after use, is the established pattern), not from a CLI script or a different browser profile. Don't reach for a service-role key to work around this; it's solving a five-minute inconvenience with a permanent security downgrade.
 - When testing edge cases (discard-on-tab-switch, misses, false starts), verify the actual outcome against real Supabase rows, not the on-screen summary alone — the on-screen summary and the saved rows have, more than once, diverged in ways only caught by checking both.
+- Generated visual assets (the share-card PNG, Phase 3.3b) can look correct at a glance — right score, right shape, right colors — while a specific element is silently mispositioned (a missing SVG attribute defaulted to 0). Skimming the generated SVG/markup is not enough; render the actual output artifact and inspect it directly. For canvas/blob output specifically, the working pattern this phase: patch `URL.createObjectURL` to capture the blob, convert to a data URL, and load it in a freshly-opened, otherwise-empty tab (isolates it from any on-page content it could visually blend with).
+- Native browser behavior (HTML5 form validation, autofill, etc.) can silently intercept custom UI before your own code ever runs, and this is invisible from reading the code — it only shows up by actually submitting through a real browser. Check any form-adjacent UI this way, not just its handler logic.
+- A schema assumption that held for one table (e.g. a unique constraint) does not automatically hold for a sibling table — `leads` had no unique constraint where `results` did, despite both looking superficially similar. Always confirm the actual constraints (`pg_constraint`/`pg_indexes`), don't infer from a table's role.
 
 ## 12. Skills & Plugins in Use
 
@@ -195,6 +280,9 @@ Project skills (.claude/skills/ — now correctly committed to the repo at proje
 Installed plugins (user scope):
 - pr-review-toolkit — review gate before measurement-logic commits and phase-end QA. Don't overuse on trivial changes — 12 agents, real token cost.
 - example-skills (anthropic-agent-skills marketplace) — includes the Playwright web-app testing skill.
+
+MCP servers (user scope, Phase 3.3):
+- Supabase MCP — read-only, scoped to this project's ref via `--read-only --project-ref=...`. Registered at **user** scope specifically; registering it at project/directory scope first meant it silently didn't load from this repo's working directory (`claude mcp list` showed it registered under the wrong project path) — re-registering with `--scope user` fixed it, and this is now the working setup. Supersedes the old "temporary /dev/... debug page" pattern for reads (§11); still can't write, so migrations still go through the Supabase SQL editor by hand.
 
 ## 13. Token-Efficiency Working Protocol
 
