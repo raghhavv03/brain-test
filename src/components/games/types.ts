@@ -14,6 +14,9 @@ export type GameProps = {
   /**
    * Provided by the sequence wrapper: the done screen shows a Continue
    * button calling this instead of the standalone "Run again" button.
+   * The optional info arg reports this step's save outcome so the wrapper
+   * can halt (instead of advancing) if trials didn't save cleanly — see
+   * the mid-run halt/restart screen in src/app/test/page.tsx.
    */
-  onComplete?: () => void;
+  onComplete?: (info?: { saveFailures: number; fatalError: string | null }) => void;
 };

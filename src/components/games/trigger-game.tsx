@@ -384,7 +384,10 @@ export function TriggerGame({
               </ol>
             </details>
             {onComplete ? (
-              <Button size="lg" onClick={onComplete}>
+              <Button
+                size="lg"
+                onClick={() => onComplete({ saveFailures, fatalError })}
+              >
                 {isPractice ? "Start the real round" : "Continue"}
               </Button>
             ) : (

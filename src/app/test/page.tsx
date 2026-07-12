@@ -11,11 +11,21 @@
  * as a new run; the abandoned partial run stays in the table under its own
  * run_id and is simply never scored.
  *
+ * Session-integrity gate (July 2026 production incident — see
+ * docs/project-reference.md, src/lib/supabase/session.ts): the intro screen
+ * verifies a write-capable session before "Begin" is enabled, and every step
+ * completion is checked for save failures. A pre-run desync self-heals
+ * silently (safe: nothing has saved yet). A mid-run desync halts the run and
+ * requires a full restart through the same validated intro gate, exactly
+ * like any other abandoned run above — session_id must never change once a
+ * trial has saved under the active run_id (fetchRunTrials's exact-pair
+ * filter has no way to recover a run split across two identities).
+ *
  * Flow/state pass only — the visual skin comes later (Phase 4). The complete
  * step renders the Phase 3.3 results screen.
  */
 
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { ResultsScreen } from "@/components/results/results-screen";
 import { TriggerGame } from "@/components/games/trigger-game";
@@ -23,6 +33,7 @@ import { GatekeeperGame } from "@/components/games/gatekeeper-game";
 import { EchoGame } from "@/components/games/echo-game";
 import { CircuitGame } from "@/components/games/circuit-game";
 import { LockOnGame } from "@/components/games/lockon-game";
+import { ensureSession, resetSession, setRunActive } from "@/lib/supabase/session";
 import type { GameProps } from "@/components/games/types";
 
 const GAMES: {
@@ -41,14 +52,94 @@ const GAMES: {
 // Two steps per game: practice (even), scored (odd).
 const TOTAL_STEPS = GAMES.length * 2;
 
+type SessionState = "checking" | "ready" | "blocked";
+type HaltInfo = { saveFailures: number; fatalError: string | null };
+
 export default function TestPage() {
   const [runId, setRunId] = useState<string | null>(null);
   // -1 = intro, 0..TOTAL_STEPS-1 = game steps, TOTAL_STEPS = complete.
   const [step, setStep] = useState(-1);
+  const [sessionState, setSessionState] = useState<SessionState>("checking");
+  const [haltInfo, setHaltInfo] = useState<HaltInfo | null>(null);
+
+  // Pre-run only (see the module-level comment on runActive in session.ts):
+  // verifies ensureSession() actually resolves before "Begin" is enabled.
+  const checkSession = useCallback(async () => {
+    setSessionState("checking");
+    try {
+      await ensureSession();
+      setSessionState("ready");
+    } catch {
+      setSessionState("blocked");
+    }
+  }, []);
+
+  useEffect(() => {
+    void checkSession();
+  }, [checkSession]);
 
   function startRun() {
+    setHaltInfo(null);
+    setRunActive(true);
     setRunId(crypto.randomUUID());
     setStep(0);
+  }
+
+  // Called by each game's onComplete with this step's save outcome. A clean
+  // step advances as before; a step with any save failure halts instead of
+  // silently proceeding into a corrupted or partial run. Reaching the
+  // results step ends the run — runActive resets here so a desync detected
+  // while viewing results (or before a later retake) can self-heal again,
+  // instead of runActive staying stuck true for the rest of the tab's life.
+  function handleStepComplete(info?: HaltInfo) {
+    if (info && (info.saveFailures > 0 || info.fatalError)) {
+      setHaltInfo(info);
+      return;
+    }
+    if (step + 1 >= TOTAL_STEPS) setRunActive(false);
+    setStep((s) => s + 1);
+  }
+
+  // The only sanctioned recovery from a mid-run halt: abandon this run_id
+  // (it stays orphaned in trials, exactly like a reload-abandoned run — see
+  // the file-level comment) and return to the validated intro gate.
+  // resetSession() is essential here, not optional: the desync event that
+  // caused this halt was deliberately dropped by onAuthStateChange while the
+  // run was active (see session.ts), so it never gets "replayed" just
+  // because runActive flips back to false — without forcing a fresh
+  // ensureSession() re-derivation, checkSession() would just hand back the
+  // same stale, broken identity and this halt would recur indefinitely.
+  function restartFromHalt() {
+    setHaltInfo(null);
+    setRunActive(false);
+    resetSession();
+    setStep(-1);
+    void checkSession();
+  }
+
+  if (haltInfo) {
+    return (
+      <main className="lab flex min-h-screen flex-col items-center justify-center gap-6 bg-background px-6 py-16 text-center text-foreground">
+        <p className="font-mono text-[11px] uppercase tracking-widest text-destructive">
+          Session interrupted
+        </p>
+        <h1 className="max-w-md text-2xl font-semibold tracking-tight">
+          This round didn&apos;t save correctly
+        </h1>
+        <p className="max-w-sm text-sm text-muted-foreground">
+          Your browser lost its connection to your session, so
+          {haltInfo.saveFailures > 0
+            ? ` ${haltInfo.saveFailures} result${haltInfo.saveFailures === 1 ? "" : "s"} from this round didn't save.`
+            : " part of this round didn't save."}{" "}
+          To keep your results accurate, restarting is the only way to
+          guarantee clean data for scoring — this attempt won&apos;t be
+          scored.
+        </p>
+        <Button size="lg" onClick={restartFromHalt}>
+          Restart
+        </Button>
+      </main>
+    );
   }
 
   if (step === -1) {
@@ -80,9 +171,27 @@ export default function TestPage() {
             This is a performance exercise, not a medical test.
           </p>
         </div>
-        <Button size="lg" onClick={startRun}>
-          Begin
-        </Button>
+        {sessionState === "ready" && (
+          <Button size="lg" onClick={startRun}>
+            Begin
+          </Button>
+        )}
+        {sessionState === "checking" && (
+          <p className="font-mono text-xs uppercase tracking-widest text-muted-foreground">
+            Confirming your session…
+          </p>
+        )}
+        {sessionState === "blocked" && (
+          <div className="flex flex-col items-center gap-3">
+            <p className="max-w-xs text-sm text-destructive">
+              We couldn&apos;t confirm your session. This can happen after
+              the browser reclaims memory in the background.
+            </p>
+            <Button size="lg" onClick={checkSession}>
+              Retry
+            </Button>
+          </div>
+        )}
       </main>
     );
   }
@@ -106,7 +215,7 @@ export default function TestPage() {
         key={step}
         mode={isPracticeStep ? "practice" : "scored"}
         runId={runId}
-        onComplete={() => setStep((s) => s + 1)}
+        onComplete={handleStepComplete}
       />
     </div>
   );
