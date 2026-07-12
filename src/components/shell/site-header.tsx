@@ -1,6 +1,6 @@
 import Link from "next/link";
 
-import { Button } from "@/components/ui/button";
+import { EnterLabButton } from "@/components/shell/enter-lab-button";
 
 const navLinks = [
   { href: "/science", label: "The Science" },
@@ -28,9 +28,7 @@ export function SiteHeader() {
               </Link>
             ))}
           </div>
-          <Button size="sm" nativeButton={false} render={<Link href="/test" />}>
-            Take the Brain Test
-          </Button>
+          <EnterLabButton size="sm">Take the Brain Test</EnterLabButton>
         </nav>
       </div>
     </header>
