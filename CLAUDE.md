@@ -41,17 +41,24 @@ diversity wasn't achievable via the browser-automation tool) and an
 unrelated pre-existing type-fixture bug found and fixed alongside this work
 (insights.test.ts — see §9d; a `npm run typecheck` script now exists
 specifically so this class of gap doesn't recur).
-Shell pages are now the active Phase 4 work, governed by three locked
-design-system decisions in docs/project-reference.md §8a: the site-wide
-palette split (calm light shells vs. the existing dark lab, with a designed
-shell↔lab transition), the landing-hero constraints (placeholder 3D bottle,
-swap-in-ready, poster fallback + reduced-motion, mobile performance as a
-hard budget not a nice-to-have), and the placeholder-copy rule (all shell
+Shell pages: the three core shells — Home, Science, and About — are DONE,
+governed by three locked design-system decisions in docs/project-reference.md
+§8a: the site-wide palette split (calm light shells vs. the existing dark
+lab), the landing-hero constraints, and the placeholder-copy rule (all shell
 copy `[PLACEHOLDER]`-tagged, no fabricated testimonials/citations/claims —
 a liability guard given the neurosurgery credibility the brand rests on).
-Scope split: this session covers the three core shells (Home incl. the 3D
-hero, Science, About); Product, Privacy, and Blog are deferred to a later
-pass. Responsive pass and PWA manifest come after that.
+Home ships the placeholder bottle hero (no WebGL — layered SVG/Framer Motion,
+documented swap contract for the real product model) and the Home→/test
+shell→lab entry sweep. Science's "how scoring works" section carries the
+project owner's interim-approved copy (still `[PLACEHOLDER]`-tagged pending
+scientific-team sign-off). All three typechecked, build-verified, and
+click-through-verified; see docs/project-reference.md §8a and §10.
+What's next in Phase 4: Product, Privacy & Disclaimer, and Content/Blog
+pages (deferred this session); a full responsive polish pass; the PWA
+manifest; and the results-screen→shell exit transition (only the
+Home→/test entry half of the shell↔lab transition exists so far). A real-
+phone check of the shell pages is also still outstanding — see
+docs/project-reference.md §11.
 Read docs/project-reference.md for full detail on any past phase before
 starting new work — don't re-derive decisions already made there.
  
