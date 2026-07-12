@@ -51,18 +51,18 @@ Gatekeeper (Go/No-Go) — done (logic + skin)
 - Measures: impulse control. Skin: authorize frequent "friendlies," resist rare "hostiles."
 - Fixed skeleton: 32 go / 8 no-go (fixed-count shuffle, not per-trial coin-flip, to guarantee exact ratio); primary measure = commission errors. rt_ms captured on both go-hits and no-go commission errors (not just go trials) — commission-error latency is itself diagnostic.
 
-Echo (N-back) — done (logic; skin pending)
-- Measures: working memory. Skin: signal-decoding stream, 2-back match.
+Echo (N-back) — done (logic + skin)
+- Measures: working memory. Skin: signal-decoding stream, 2-back match — the letter renders in a glowing decoder orb (same radial-gradient motif as Trigger's target), with a "DECODED n" HUD counter.
 - Fixed skeleton: 8-letter pool, steady fixed 2500ms SOA regardless of response timing (fire-and-forget capture — an early response must never shorten the interval), letter visible 500ms then blank. 24 items, exactly 7 forced/excluded targets (not probabilistic) so the true target rate is exact, not "roughly." Items 1-2 can never be targets (no 2-back reference yet). Classification: hit / miss / false_alarm / correct_rejection, recomputed from ground truth at runtime, not trusted from the generator.
-- Known UX-only issue, deferred to skin pass: previous item's feedback text displays concurrently with current item's letter (by design, for continuous feedback) but isn't visually distinguished — needs a "Previous:" label or fade, not a logic fix.
+- Previous-item feedback separation — resolved in the Phase 4 skin pass (was a known UX-only issue: feedback text displayed concurrently with the current letter but wasn't visually distinguished). Fixed with a dedicated `PrevFeedback` chip (`src/components/echo/prev-feedback.tsx`): a small, dimmed, explicitly-labelled "Prev · Signal N" pill below the decoder, so it can never be mistaken for the current item. Purely presentational — receives an already-classified item via the same onResult display-hook pattern used in Trigger/Gatekeeper; no change to the SOA, capture, or classification logic. See §9d.
 
-Circuit (Trail-Making B) — done (logic; skin pending)
-- Measures: task-switching. Skin: glowing trail connecting nodes 1-A-2-B-3-C, timed.
+Circuit (Trail-Making B) — done (logic + skin)
+- Measures: task-switching. Skin: glowing trail connecting nodes 1-A-2-B-3-C, timed — implemented in `src/components/circuit/circuit-board.tsx` (grid backdrop, an SVG polyline glow trail linking completed nodes in order, a destructive ring pulse on a wrong tap). Nodes still fire the game's own onPointerDown handler directly; the *next* expected node is deliberately never highlighted, since finding it is the task being measured. See §9d.
 - Fixed skeleton: 16-node fixed alternating sequence (1-A-2-B-...-8-H); wrong taps never advance state (no skip-ahead, verified against deliberate ahead-of-sequence taps, not just any-wrong-node taps); already-tapped nodes stay tappable (disabling them would silently narrow what "error" measures). DOM buttons, not canvas (nothing moves after placement).
 - Timing: rt_ms = time since last correct tap (inter-node latency); a separate elapsed_since_first_tap_ms field is saved per row so total completion time is always derivable from raw data regardless of whether the very first tap was correct or wrong (summing only correct-tap rt_ms breaks if tap 1 is wrong).
 
-Lock-On (Multiple Object Tracking) — done (logic; skin pending) — showpiece
-- Measures: divided attention. Skin: orbs blend after marking, drift, user re-identifies.
+Lock-On (Multiple Object Tracking) — done (logic + skin) — showpiece
+- Measures: divided attention. Skin: orbs blend after marking, drift, user re-identifies — the orb (gradient + halo) is baked once into an offscreen sprite and blitted per object per frame, and per-frame trails are one translucent fillRect, both chosen specifically to avoid per-object gradient/shadowBlur cost at N=12 on phone frame rates. Target status only ever reaches the canvas during marking (reticle) and reveal (locked = primary ring, escaped target = solid destructive ring, false lock = dashed destructive ring) — during motion and selection every object is drawn by identical code, so the trail/sprite carry zero tracking information. See §9d for the sustained-play timing verification.
 - Critical fix applied — object count scales with K. Original fixed-N=8 design had a complement-set flaw: effective tracking load = min(K, N-K), so at K=6 with N=8 there are only 2 distractors and the task becomes trivially easy by tracking the smaller distractor set instead. Fixed: N = 2K (distractor count always equals K), so effective load = K at every level. K escalates 3-6 (N = 6/8/10/12 objects respectively).
 - Marking time scales too: MARK_MS = 1500 + 250*K (not flat) — flat marking time would confound tracking capacity with encoding-time pressure at higher K.
 - K cap = 6, justified by capacity-ceiling literature (Pylyshyn & Storm), phone touch-target margins at N=12, and confirmed physics headroom (no changes needed to collision/spawn logic at this density).
@@ -87,6 +87,8 @@ Lock-On (Multiple Object Tracking) — done (logic; skin pending) — showpiece
 Framer Motion. Restrained in the shell, lively in the lab. Micro-feedback on every correct response; smooth stage transitions; between-stage performance meter. Phase 4 — never let polish precede correct measurement. A great-looking mistimed game is worse than an ugly correctly-timed one.
 
 Established pattern from Phase 1-2: skin passes are not risk-free. On both Trigger and Gatekeeper, a "presentation-only" change required real logic changes (a display-state onResult callback hook mirroring the trial loop) and, on Trigger specifically, surfaced two genuine bugs (a gauge/text sync lag, an SVG rotation-origin bug requiring a rewrite from CSS transform to native rotate()). Always re-verify against real Supabase data after any skin pass — never treat "visual only" as "risk-free."
+
+Phase 4 extended this same onResult display-hook pattern to Echo, Circuit, and Lock-On (no new mechanism) and unified the visual grammar across all five games: the dark `.lab` root with a `COGNITIVE PERFORMANCE LAB` HUD strip (live per-game metric + motion toggle), one rounded-3xl card per game with a mono uppercase title/instrument-label subtitle pairing (Trigger's "Reflex Console", Gatekeeper's "Authorization Gate", Echo's "Signal Decoder", Circuit's "Node Board", Lock-On's "Target Tracking"), the same StatBox grid + collapsible per-trial log on every done screen, and the same radial-gradient orb motif reused across stimuli. Reduced-motion is respected throughout. See §9d for the full skin-pass writeup and verification.
 
 ## 7. Website Structure
 
@@ -241,15 +243,36 @@ lesson on this:
    isolated tab and reading it pixel-by-pixel, not from the SVG string
    looking reasonable at a skim.
 
+### 9d. Phase 4 Game Skins (Echo, Circuit, Lock-On) — built and verified
+
+Skinned all three remaining games in one pass, as a single coherent visual system with Trigger/Gatekeeper (see §6 for the shared grammar). Every change was presentational only, using the established onResult display-hook pattern — none of it touches saveTrial, rt_ms capture, or discard logic.
+
+**Echo** — new `src/components/echo/prev-feedback.tsx`. Resolves the previous-item feedback-overlap issue noted in §4: a small, dimmed, explicitly-labelled "Prev · Signal N" chip renders the prior item's classification below the decoder orb, so it can never be mistaken for the current letter.
+
+**Circuit** — new `src/components/circuit/circuit-board.tsx`. Grid backdrop, an SVG polyline glow trail linking completed nodes in tap order, a destructive ring pulse on a wrong tap. The next expected node is deliberately never highlighted.
+
+**Lock-On** (showpiece) — the orb (gradient + halo) is baked once into an offscreen sprite and blitted per object per frame instead of drawing a fresh gradient per object; per-frame trails are a single translucent `fillRect` over the previous frame. Both choices exist specifically for phone frame-rate headroom at N=12 — the old per-object-gradient approach would not have scaled. Target status reaches the canvas only during marking (reticle) and reveal (locked = primary ring, escaped target = solid destructive ring, false lock = dashed destructive ring); during motion and selection every object is drawn by identical, unconditional code.
+
+**Verification against live Supabase data:**
+- Echo: a full 24-item scored run — exactly 7 targets → 7 miss + 17 correct_rejection rows, 0 discarded, save-timestamp spacing averaging 2504ms across 23 intervals (fixed 2500ms SOA held under the new skin).
+- Circuit: a full run including one deliberate wrong tap — saved correctly as `correct=false` with its own rt_ms; `elapsed_since_first_tap_ms` strictly monotonic through to completion, matching the on-screen completion time.
+- Lock-On: rounds verified with `mark_ms_measured`/`motion_ms_measured` matching nominal on first pass, reveal-ring grammar correct on screen.
+
+**Sustained-play timing-drift check (Lock-On).** A follow-up pass played 7 additional live rounds over ~7.5 minutes specifically to rule out a creeping per-frame cost from the new trail/reticle/selected-ring draw work under repeated play (as opposed to a single verification round). `mark_ms_measured` and `motion_ms_measured` deltas from nominal stayed in a tight 0–8ms band across the whole chronological sequence, with no upward trend correlated with play order — consistent with ordinary requestAnimationFrame boundary quantization (8ms is sub-one-frame at 60fps), not accumulating draw cost. One of the 7 rounds was a genuine tab-visibility discard; its timing (2251.0ms mark / 6000.0ms motion) was indistinguishable from the non-discarded rounds, confirming the visibility watcher flags rounds post-hoc without perturbing the rAF timing loop itself.
+
+Known verification gap: all 7 rounds landed at K=3. Reliable K-escalation requires visually tracking which orbs were tagged through the ~6s motion phase, and the browser-automation tool's round-trip latency exceeds Lock-On's ~2.25s marking window — by the time a screenshot returns, marking has already ended, so there was no way to observe target identity and select correctly better than chance (≈5% per attempt at K=3). `motion_ms` is a fixed 6000ms constant independent of K by design, so this gap is narrower than it sounds — only `mark_ms`'s K-scaling (1500+250·K) remains empirically unverified above K=3 from this specific check; the formula itself is unchanged, deterministic code untouched by the skin pass. Closing this gap requires either a human playtester or a temporary dev-only K-override, and either would need sign-off before implementing (the latter touches game code).
+
+**Unrelated bug found and fixed alongside this phase.** `src/components/results/__tests__/insights.test.ts` had 25 `tsc` errors, present since it was added in Phase 3.3a (commit `31a033f`) and invisible until now. Root cause: `next build`'s TypeScript check only walks files reachable from the app's route import graph (pages/layouts and their imports) — not every file `tsconfig.json`'s `include` glob covers — so a test file that nothing imports can fail a full `tsc --noEmit` while `next build` still reports "Finished TypeScript" clean. Confirmed empirically: stashing the fix and running `next build` on affected HEAD still passed. The test itself was wrong since day one: its `scored()` fixture helper and `insufficient` constant were both typed with `DomainScore`'s default generic (`Record<string, unknown>`), which doesn't structurally satisfy `DomainScores`' per-domain specific detail types (`TriggerDetail`, `GatekeeperDetail`, etc., in `src/lib/scoring/types.ts`). Fixed by replacing the one generic helper with five domain-specific `scoredX()` helpers built from the real detail shapes, and narrowing `insufficient` to an `as const` literal (the `insufficient_data` variant doesn't reference the generic at all, so a narrow literal type-checks against every domain's `DomainScore<T>`). No change to `domains.ts`, the scoring engine, or any assertion — `pickInsights` never reads `.detail`, only `.status`/`.score`. Added a `npm run typecheck` script (`tsc --noEmit`, see §3/README) and a CLAUDE.md HOW TO WORK line so `next build` alone is never again treated as proof of a clean typecheck — see §11's lessons list.
+
 ## 10. Build Order
 
 | Phase | Goal | Status |
 |---|---|---|
 | 0 — Foundations | Live empty site | Done — Next.js+Tailwind+shadcn deployed to Vercel; design tokens set; Supabase (schema, RLS, anonymous auth) created; env vars set in both .env.local and Vercel |
 | 1 — Engine + Trigger | One game measuring + saving correctly | Done — engine verified, Trigger built/skinned/reviewed/committed/pushed |
-| 2 — Rest of battery | All 5 games | Done — Gatekeeper, Echo, Circuit, Lock-On all built and logic-verified. Skins pending for Echo, Circuit, Lock-On (Gatekeeper and Trigger skins done) |
+| 2 — Rest of battery | All 5 games | Done — Gatekeeper, Echo, Circuit, Lock-On all built and logic-verified. All 5 games' skins now done too (Echo/Circuit/Lock-On skinned in the Phase 4 batch, §9d; Gatekeeper/Trigger skins were done earlier) |
 | 3 — Flow + scoring + results | Complete funnel | Done — 3.1 (sequence wrapper), 3.2 (scoring engine), and 3.3 (results screen: score/radar/insights + email capture/share card) all built, verified against live Supabase data, reviewed, committed |
-| 4 — Polish + PWA | Feels pro, works on phones | Not started — shell pages, remaining game skins (Echo, Circuit, Lock-On), responsive pass, animations, PWA manifest all pending |
+| 4 — Polish + PWA | Feels pro, works on phones | In progress — game-skin batch complete (Echo, Circuit, Lock-On skinned and verified against live data, matching Trigger/Gatekeeper's visual language; see §9d). Still pending: shell pages, responsive pass, animations, PWA manifest |
 | 5 — Integration + handoff | Live + connected | Not started |
 
 ## 11. Testing & Verification Protocol
@@ -269,6 +292,8 @@ Additional lessons from Phase 1-3.2, now standing practice:
 - Generated visual assets (the share-card PNG, Phase 3.3b) can look correct at a glance — right score, right shape, right colors — while a specific element is silently mispositioned (a missing SVG attribute defaulted to 0). Skimming the generated SVG/markup is not enough; render the actual output artifact and inspect it directly. For canvas/blob output specifically, the working pattern this phase: patch `URL.createObjectURL` to capture the blob, convert to a data URL, and load it in a freshly-opened, otherwise-empty tab (isolates it from any on-page content it could visually blend with).
 - Native browser behavior (HTML5 form validation, autofill, etc.) can silently intercept custom UI before your own code ever runs, and this is invisible from reading the code — it only shows up by actually submitting through a real browser. Check any form-adjacent UI this way, not just its handler logic.
 - A schema assumption that held for one table (e.g. a unique constraint) does not automatically hold for a sibling table — `leads` had no unique constraint where `results` did, despite both looking superficially similar. Always confirm the actual constraints (`pg_constraint`/`pg_indexes`), don't infer from a table's role.
+- `next build` passing is not proof of a clean typecheck (Phase 4). Its TypeScript check only walks files reachable from the app's route import graph, not everything `tsconfig.json`'s `include` covers — a test file nothing imports can carry real `tsc` errors invisibly for phases at a time (§9d: 25 errors in `insights.test.ts`, present since Phase 3.3a, unnoticed until an explicit `npm run typecheck` run). Run `npm run typecheck` (`tsc --noEmit`) as its own step, don't rely on build output alone.
+- Automated browser-tool round-trip latency can exceed a short timed UI window. Lock-On's ~2.25s marking phase elapsed before a screenshot request could ever return, making it impractical to visually verify or interact with that phase via this harness (§9d). When a game has a sub-3s critical window, plan verification around what's actually observable after the fact (saved timing fields, final state) rather than trying to react to the window live.
 
 ## 12. Skills & Plugins in Use
 
@@ -294,6 +319,7 @@ MCP servers (user scope, Phase 3.3):
 - Paste error messages directly for fast fixes.
 - Ask for a plan before code, and the simplest version.
 - Reserve pr-review-toolkit for measurement-logic commits and phase-end QA, not every trivial change.
+- Run `npm run typecheck` (`tsc --noEmit`) as its own step before treating a change as verified — `next build` alone only checks files reachable from the app's routes and can miss real errors elsewhere (e.g. test files; see §11).
 
 Model-tier guidance established during Phase 1-3.2: reserve the highest-capability model (Fable 5, while available; Opus otherwise) for tasks with genuine open-ended reasoning tradeoffs — e.g., Lock-On's physics/complement-set redesign, the scoring engine's normalization-and-weighting design. Routine logic-building (Gatekeeper, Echo, Circuit cores), all skin passes, and integration/UI work (sequence wrapper, results screen, shell pages) are comfortably within a mid-tier model's capability and shouldn't consume premium-tier budget.
 

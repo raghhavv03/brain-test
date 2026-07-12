@@ -11,10 +11,8 @@ Vitest for scoring-engine unit tests.
 
 ## Current Status (see docs/project-reference.md §10 for the full build-order table)
 Phases 0-2 done: all five games (Trigger, Gatekeeper, Echo, Circuit, Lock-On)
-built, logic-verified against real Supabase data, reviewed. Skins done for
-Trigger and Gatekeeper; pending for Echo, Circuit, Lock-On (deferred as a
-batch to Phase 4, for visual consistency with the sequence wrapper).
-Phase 3 is now DONE. 3.1 (sequence wrapper, /test), 3.2 (scoring engine,
+built, logic-verified against real Supabase data, reviewed.
+Phase 3 is DONE. 3.1 (sequence wrapper, /test), 3.2 (scoring engine,
 src/lib/scoring/), and 3.3 (results screen, src/components/results/) are all
 built, verified against live Supabase data, and committed. 3.3 shipped in
 two parts: (a) headline score + domain radar + strength/growth insights —
@@ -28,8 +26,23 @@ rendered on mount to avoid Safari's user-activation timeout). Two real bugs
 were caught by live-data verification and fixed before commit — see
 docs/project-reference.md §9c for what they were and why static review
 alone wouldn't have caught them.
-Not yet started: Phase 4 (shell pages, remaining game skins, responsive +
-PWA pass) — next up.
+Phase 4 is in progress. The game-skin batch is DONE: Echo (signal-decoding
+stream + a PrevFeedback chip resolving the previously-known feedback-overlap
+issue), Circuit (glowing trail/node-board), and Lock-On (canvas orb-sprite +
+trail/reticle skin, built for phone frame-rate headroom) are all skinned,
+matching Trigger/Gatekeeper's established visual language — same onResult
+display-hook pattern, same HUD/card grammar — not a new mechanism. All five
+games are now visually and mechanically complete. Verified against live
+Supabase data, including a follow-up sustained-play pass on Lock-On (7 live
+rounds) specifically checking mark_ms_measured/motion_ms_measured for
+drift under repeated play — none found. See docs/project-reference.md §4
+and the new §9d for full detail, including a known verification gap (K-level
+diversity wasn't achievable via the browser-automation tool) and an
+unrelated pre-existing type-fixture bug found and fixed alongside this work
+(insights.test.ts — see §9d; a `npm run typecheck` script now exists
+specifically so this class of gap doesn't recur).
+Not yet started: shell pages (Home, Science, About, Product, Privacy, Blog),
+responsive pass, PWA manifest — the remainder of Phase 4.
 Read docs/project-reference.md for full detail on any past phase before
 starting new work — don't re-derive decisions already made there.
  
@@ -63,6 +76,7 @@ before proceeding rather than silently picking one.
 - One small feature per step. Build, then stop so I can test.
 - Prefer the simplest solution. Don't add libraries without asking.
 - Show me the diff; don't delete/rename files broadly without flagging it.
+- `next build` passing is not proof of a clean typecheck — it only checks files reachable from the app's route import graph, so test files (and anything else unimported) can hide real type errors. Run `npm run typecheck` separately before treating something as verified.
 - After a working step, I commit to Git before we continue.
 - Never hard-code secrets. Use .env for Supabase keys.
 - If unsure, ask. Explain anything I might not understand.

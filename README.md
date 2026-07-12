@@ -27,10 +27,11 @@ Next.js (App Router) + TypeScript · Tailwind · shadcn/ui · Framer Motion · S
 | Command | Does |
 |---|---|
 | `npm run dev` | Local dev server |
-| `npm run build` | Production build (typecheck + static generation) |
+| `npm run build` | Production build (static generation + a route-graph-scoped typecheck — see caveat below) |
+| `npm run typecheck` | `tsc --noEmit` — checks every file `tsconfig.json` includes, e.g. test files. Run this separately; `npm run build` alone does not catch type errors in files the app's routes never import (see CLAUDE.md's HOW TO WORK). |
 | `npm run lint` | ESLint |
 | `npm test` | Vitest (scoring-engine unit tests) |
 
 ## Current status
 
-See CLAUDE.md's "Current Status" section and `docs/project-reference.md` §10 for the full build-order table. Phases 0–3 are done (all five games, sequence wrapper, scoring engine, results screen). Phase 4 (shell pages, remaining game skins, responsive + PWA pass) is next.
+See CLAUDE.md's "Current Status" section and `docs/project-reference.md` §10 for the full build-order table. Phases 0–3 are done (all five games, sequence wrapper, scoring engine, results screen). Phase 4 is in progress: all five games are now fully skinned (Echo, Circuit, Lock-On skins landed and were verified against live Supabase data, matching Trigger/Gatekeeper's established visual language). Remaining in Phase 4: shell pages, responsive pass, PWA manifest.
