@@ -59,6 +59,28 @@ manifest; and the results-screen→shell exit transition (only the
 Home→/test entry half of the shell↔lab transition exists so far). A real-
 phone check of the shell pages is also still outstanding — see
 docs/project-reference.md §11.
+A production incident, found and fixed after the shell-page work above:
+a real user completed two full 5-game sessions on iPhone Safari with
+insufficient_data on every domain — zero trials, zero results saved,
+silently. Root cause: the anonymous-auth JWT (persisted in localStorage)
+could desync from the identity ensureSession() returned, most likely
+from iOS backgrounding/reloading the tab mid-flow, combined with every
+saveTrial() call being wrapped in a silent .catch(() => false). Fixed
+with a three-layer change — explicit Supabase auth config, a
+run-active-gated self-healing session listener (the key insight: silent
+self-heal is only safe *before* a run starts; mid-run it must halt and
+require a restart, never silently swap identities, or it risks splitting
+one run's trials across two session_ids), and a sequence-wrapper session
+gate plus a mid-run halt-and-restart screen. Two pr-review-toolkit passes
+caught and fixed three bugs in the fix itself (a permanently-stuck-on-
+rejection session cache, runActive never resetting after a successful
+run, a spurious first-load auth event). A separate, real Vercel env-var
+bug (both NEXT_PUBLIC_SUPABASE_* vars empty in the Production dashboard)
+was found and fixed along the way — didn't affect the already-built live
+bundle, but was a time-bomb for the next deploy. Not phase-scoped work —
+touched already-shipped session handling. Full investigation trail, fix
+design, and verification: docs/project-reference.md §9e. Test tables
+(sessions/trials/results/leads) were truncated after this work.
 Read docs/project-reference.md for full detail on any past phase before
 starting new work — don't re-derive decisions already made there.
  

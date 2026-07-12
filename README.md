@@ -34,4 +34,6 @@ Next.js (App Router) + TypeScript · Tailwind · shadcn/ui · Framer Motion · S
 
 ## Current status
 
-See CLAUDE.md's "Current Status" section and `docs/project-reference.md` §10 for the full build-order table. Phases 0–3 are done (all five games, sequence wrapper, scoring engine, results screen). Phase 4 is in progress: all five games are now fully skinned (Echo, Circuit, Lock-On skins landed and were verified against live Supabase data, matching Trigger/Gatekeeper's established visual language). Remaining in Phase 4: shell pages, responsive pass, PWA manifest.
+See CLAUDE.md's "Current Status" section and `docs/project-reference.md` §10 for the full build-order table. Phases 0–3 are done (all five games, sequence wrapper, scoring engine, results screen). Phase 4 is in progress: all five games are now fully skinned (Echo, Circuit, Lock-On skins landed and were verified against live Supabase data, matching Trigger/Gatekeeper's established visual language). The three core shell pages (Home, Science, About) are also done; remaining in Phase 4: Product/Privacy/Blog pages, a responsive pass, the PWA manifest.
+
+A production session-integrity incident — silent, total trial-save loss on iOS Safari, root-caused to an anonymous-auth identity desync — was found, fixed with a three-layer session-handling change, and verified after the shell-page work. See `docs/project-reference.md` §9e for the full investigation trail and fix design.
