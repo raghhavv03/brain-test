@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { motion } from "framer-motion";
 import { ensureSession } from "@/lib/supabase/session";
 import {
   createVisibilityWatcher,
@@ -8,7 +9,11 @@ import {
   type VisibilityWatcher,
 } from "@/lib/engine/measurement";
 import { saveTrial } from "@/lib/engine/save-trials";
-import { BOARD, SEQUENCE, createBoard, type CircuitNode } from "@/lib/circuit/board";
+import { SEQUENCE, createBoard, type CircuitNode } from "@/lib/circuit/board";
+import { useMotionPreference } from "@/lib/hooks/use-motion-preference";
+import { Button } from "@/components/ui/button";
+import { CircuitBoard } from "@/components/circuit/circuit-board";
+import { ReducedMotionToggle } from "@/components/lab/reduced-motion-toggle";
 import type { GameProps } from "@/components/games/types";
 
 const GAME = "circuit";
@@ -46,6 +51,7 @@ export function CircuitGame({
   const [completionMs, setCompletionMs] = useState<number | null>(null);
   const [saveFailures, setSaveFailures] = useState(0);
   const [fatalError, setFatalError] = useState<string | null>(null);
+  const [reducedMotion, toggleReducedMotion] = useMotionPreference();
 
   const phaseRef = useRef<Phase>("idle");
   const runningRef = useRef(false);
@@ -113,7 +119,7 @@ export function CircuitGame({
           completionResolverRef.current = null;
         }
       } else {
-        setMessage("Wrong — try again");
+        setMessage("Link rejected — retrace");
       }
     };
   }
@@ -194,87 +200,154 @@ export function CircuitGame({
   }
 
   const errorCount = taps.filter((t) => !t.correct).length;
+  const correctCount = taps.filter((t) => t.correct).length;
+  const lastTap = taps.length > 0 ? taps[taps.length - 1] : null;
+  const wrongNodeId = lastTap && !lastTap.correct ? lastTap.tapped : null;
   const lastNode = activeSequence[activeSequence.length - 1];
 
   return (
-    <main className="flex min-h-screen flex-col items-center gap-4 p-6">
-      <h1>Circuit{isPractice ? " — Practice (not scored)" : ""}</h1>
-      <p>
-        Tap the circles in order — 1, A, 2, B… alternating number and letter,
-        ascending — until you reach {lastNode}.
-      </p>
-
-      <div
-        ref={boardContainerRef}
-        style={{
-          position: "relative",
-          width: BOARD.width,
-          height: BOARD.height,
-          maxWidth: "100%",
-          border: "1px solid #999",
-          visibility: "hidden",
-        }}
-      >
-        {board.map((node) => (
-          <button
-            key={node.id}
-            onPointerDown={handleTap(node.id)}
-            style={{
-              position: "absolute",
-              left: node.x,
-              top: node.y,
-              transform: "translate(-50%, -50%)",
-            }}
-          >
-            {node.id}
-          </button>
-        ))}
+    <div className="lab flex min-h-screen flex-col items-center bg-background px-6 py-10 text-foreground">
+      <div className="flex w-full max-w-2xl items-center justify-between">
+        <span className="font-mono text-[11px] uppercase tracking-widest text-muted-foreground">
+          Cognitive Performance Lab
+        </span>
+        <div className="flex items-center gap-3">
+          {correctCount > 0 && phase === "running" && (
+            <motion.span
+              key={correctCount}
+              initial={reducedMotion ? false : { scale: 1.3 }}
+              animate={{ scale: 1 }}
+              transition={{ duration: 0.4 }}
+              className="font-mono text-[11px] uppercase tracking-widest text-primary"
+            >
+              LINK {correctCount}/{activeSequence.length}
+            </motion.span>
+          )}
+          <ReducedMotionToggle
+            reducedMotion={reducedMotion}
+            onToggle={toggleReducedMotion}
+          />
+        </div>
       </div>
 
-      {phase === "running" && (
-        <p>
-          Taps: {taps.length} · Errors: {errorCount}
-        </p>
-      )}
-      <p>{phase === "running" ? message : ""}</p>
-
-      {phase === "idle" && (
-        <button onClick={runTask}>
-          {isPractice ? "Start practice" : "Start"}
-        </button>
-      )}
-
-      {phase === "done" && (
-        <div className="flex flex-col items-center gap-2 text-center">
-          <h2>{isPractice ? "Practice complete" : "Done"}</h2>
-          {fatalError && <p>Error: {fatalError}</p>}
-          <p>
-            Completion time:{" "}
-            {completionMs !== null ? `${Math.round(completionMs)} ms` : "—"}
+      <motion.div
+        initial={reducedMotion ? false : { opacity: 0, y: 16 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.5 }}
+        className="mt-10 flex w-full max-w-2xl flex-col items-center gap-6 rounded-3xl border border-border bg-card px-6 py-10 shadow-2xl sm:px-8"
+      >
+        <div className="flex flex-col items-center gap-1 text-center">
+          <h1 className="text-3xl font-semibold uppercase tracking-[0.2em]">
+            Circuit
+          </h1>
+          <p className="font-mono text-xs uppercase tracking-widest text-muted-foreground">
+            {isPractice ? "Practice — not scored" : "Node Board"}
           </p>
-          <p>Errors: {errorCount}</p>
-          <p>Save failures: {saveFailures}</p>
-          <details>
-            <summary>Per-tap log</summary>
-            <ol>
-              {taps.map((t) => (
-                <li key={t.trialIndex}>
-                  {String(t.trialIndex + 1).padStart(2, "0")} · tapped{" "}
-                  {t.tapped} · {Math.round(t.rtMs)} ms ·{" "}
-                  {t.correct ? "correct" : "wrong"}
-                </li>
-              ))}
-            </ol>
-          </details>
-          {onComplete ? (
-            <button onClick={onComplete}>
-              {isPractice ? "Start the real round" : "Continue"}
-            </button>
-          ) : (
-            <button onClick={runTask}>Run again</button>
-          )}
         </div>
-      )}
-    </main>
+
+        {phase === "running" && (
+          <span className="font-mono text-xs uppercase tracking-widest text-muted-foreground">
+            Taps {taps.length} · Errors {errorCount}
+          </span>
+        )}
+
+        <CircuitBoard
+          ref={boardContainerRef}
+          board={board}
+          sequence={activeSequence}
+          completedCount={correctCount}
+          wrongNodeId={wrongNodeId}
+          wrongTick={taps.length}
+          reducedMotion={reducedMotion}
+          onNodeTap={handleTap}
+        />
+
+        <p className="min-h-[1.25rem] font-mono text-sm uppercase tracking-widest text-destructive">
+          {phase === "running" ? message : ""}
+        </p>
+
+        {phase === "idle" && (
+          <div className="flex flex-col items-center gap-4 text-center">
+            <p className="max-w-sm text-sm text-muted-foreground">
+              Charge the circuit: tap the nodes in order — 1, A, 2, B…
+              alternating number and letter, ascending — until you reach{" "}
+              {lastNode}. The trail lights up behind you.
+            </p>
+            <Button size="lg" onClick={runTask}>
+              {isPractice ? "Start practice" : "Start"}
+            </Button>
+          </div>
+        )}
+
+        {phase === "done" && (
+          <motion.div
+            initial={reducedMotion ? false : { opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.4 }}
+            className="flex w-full max-w-md flex-col items-center gap-4"
+          >
+            <h2 className="font-mono text-xs uppercase tracking-widest text-muted-foreground">
+              {isPractice ? "Practice Complete" : "Session Complete"}
+            </h2>
+            {fatalError && (
+              <p className="text-sm text-destructive">Error: {fatalError}</p>
+            )}
+            <div className="grid w-full grid-cols-2 gap-3">
+              <StatBox
+                label="Completion"
+                value={
+                  completionMs !== null
+                    ? `${(completionMs / 1000).toFixed(1)} s`
+                    : "—"
+                }
+              />
+              <StatBox label="Errors" value={`${errorCount}`} />
+              <StatBox
+                label="Nodes"
+                value={`${activeSequence.length}`}
+              />
+              <StatBox label="Taps" value={`${taps.length}`} />
+            </div>
+            <p className="font-mono text-[11px] uppercase tracking-widest text-muted-foreground">
+              Save failures: {saveFailures}
+            </p>
+            <details className="w-full">
+              <summary className="cursor-pointer font-mono text-[11px] uppercase tracking-widest text-muted-foreground">
+                Per-tap log
+              </summary>
+              <ol className="mt-2 space-y-1 font-mono text-xs text-muted-foreground">
+                {taps.map((t) => (
+                  <li key={t.trialIndex}>
+                    {String(t.trialIndex + 1).padStart(2, "0")} · tapped{" "}
+                    {t.tapped} · {Math.round(t.rtMs)} ms ·{" "}
+                    {t.correct ? "correct" : "wrong"}
+                  </li>
+                ))}
+              </ol>
+            </details>
+            {onComplete ? (
+              <Button size="lg" onClick={onComplete}>
+                {isPractice ? "Start the real round" : "Continue"}
+              </Button>
+            ) : (
+              <Button size="lg" onClick={runTask}>
+                Run again
+              </Button>
+            )}
+          </motion.div>
+        )}
+      </motion.div>
+    </div>
+  );
+}
+
+function StatBox({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-xl border border-border bg-background/40 px-3 py-2 text-center">
+      <div className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+        {label}
+      </div>
+      <div className="mt-1 font-mono text-sm text-foreground">{value}</div>
+    </div>
   );
 }
