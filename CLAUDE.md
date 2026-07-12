@@ -41,8 +41,17 @@ diversity wasn't achievable via the browser-automation tool) and an
 unrelated pre-existing type-fixture bug found and fixed alongside this work
 (insights.test.ts — see §9d; a `npm run typecheck` script now exists
 specifically so this class of gap doesn't recur).
-Not yet started: shell pages (Home, Science, About, Product, Privacy, Blog),
-responsive pass, PWA manifest — the remainder of Phase 4.
+Shell pages are now the active Phase 4 work, governed by three locked
+design-system decisions in docs/project-reference.md §8a: the site-wide
+palette split (calm light shells vs. the existing dark lab, with a designed
+shell↔lab transition), the landing-hero constraints (placeholder 3D bottle,
+swap-in-ready, poster fallback + reduced-motion, mobile performance as a
+hard budget not a nice-to-have), and the placeholder-copy rule (all shell
+copy `[PLACEHOLDER]`-tagged, no fabricated testimonials/citations/claims —
+a liability guard given the neurosurgery credibility the brand rests on).
+Scope split: this session covers the three core shells (Home incl. the 3D
+hero, Science, About); Product, Privacy, and Blog are deferred to a later
+pass. Responsive pass and PWA manifest come after that.
 Read docs/project-reference.md for full detail on any past phase before
 starting new work — don't re-derive decisions already made there.
  

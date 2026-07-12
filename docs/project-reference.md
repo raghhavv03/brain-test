@@ -116,6 +116,20 @@ None of the shell pages are built yet — all deferred to Phase 4.
 - Mobile-first, always.
 - Placeholders to fill: brand name, exact palette, font, domain.
 
+### 8a. Shell Palette, Landing Hero & Placeholder-Copy Rules (Phase 4.2 decisions — locked before shell-page build)
+
+**Site-wide palette split.** Blue is the shared through-line across the whole site — one accent, two expressions:
+- Shells (Home, Science, About, Product, Privacy, Blog): calm, light — off-white/white base, blue accent, generous spacing. The existing "calm shell" (§2, §8).
+- Lab (the five games + sequence wrapper + results): the existing dark techy-blue lab HUD — unchanged, already built (§6, §9d).
+- The shell↔lab transition (entering/leaving /test) is a designed moment, not an abrupt swap — treat the Home→/test entry and the results→shell exit as their own small animation problem when building them, not an afterthought bolted on at the end.
+
+**Landing-page hero.** A 3D animation featuring a PLACEHOLDER product bottle for the nutraceutical brand. Three hard constraints, all non-negotiable:
+(a) Placeholder asset only, structured so the real product model (coming later from the agency-built product site) is a clean swap-in, not a rebuild — isolate the model reference/loader so replacing one file/URL is the entire migration.
+(b) Must ship with a static poster fallback and respect prefers-reduced-motion — same reduced-motion discipline already used throughout the lab (§6).
+(c) Mobile performance is a hard budget, not a nice-to-have — the primary audience is mobile (exam students, professionals — §1). A heavy WebGL hero that tanks mobile Lighthouse/load is a failure condition, not a polish item to fix later.
+
+**Shell-page copy.** All copy on shell pages is STRUCTURAL PLACEHOLDER ONLY — layout- and length-representative filler, every instance clearly marked `[PLACEHOLDER]`. Explicitly forbidden: fabricated testimonials, invented study citations, credentials, or any medical/efficacy claims. Rationale: the scientific-validation team (doctors on the brand side) must be able to find every placeholder by searching for the tag, not have to detect realistic-looking fakes buried in copy that reads as real. The project's honesty stance — "honest, not rigged" (§1) and "never claim medical precision" (CLAUDE.md's NON-NEGOTIABLE SCIENCE RULES) — applies to marketing copy exactly as it applies to scores. This is a stated liability guard given the neurosurgery credibility the whole brand rests on (§1).
+
 ## 9. Data Model (Supabase)
 
 Raw data always kept.
@@ -272,7 +286,7 @@ Known verification gap: all 7 rounds landed at K=3. Reliable K-escalation requir
 | 1 — Engine + Trigger | One game measuring + saving correctly | Done — engine verified, Trigger built/skinned/reviewed/committed/pushed |
 | 2 — Rest of battery | All 5 games | Done — Gatekeeper, Echo, Circuit, Lock-On all built and logic-verified. All 5 games' skins now done too (Echo/Circuit/Lock-On skinned in the Phase 4 batch, §9d; Gatekeeper/Trigger skins were done earlier) |
 | 3 — Flow + scoring + results | Complete funnel | Done — 3.1 (sequence wrapper), 3.2 (scoring engine), and 3.3 (results screen: score/radar/insights + email capture/share card) all built, verified against live Supabase data, reviewed, committed |
-| 4 — Polish + PWA | Feels pro, works on phones | In progress — game-skin batch complete (Echo, Circuit, Lock-On skinned and verified against live data, matching Trigger/Gatekeeper's visual language; see §9d). Still pending: shell pages, responsive pass, animations, PWA manifest |
+| 4 — Polish + PWA | Feels pro, works on phones | In progress — game-skin batch complete (Echo, Circuit, Lock-On skinned and verified against live data, matching Trigger/Gatekeeper's visual language; see §9d). **Active work: shell pages**, governed by the Phase 4.2 design decisions in §8a (palette split, landing-hero constraints, placeholder-copy rule). Scope split: this session covers the three core shells (Home incl. the 3D hero, Science, About); Product, Privacy, and Blog are deferred to a later pass. Responsive pass, animations, and PWA manifest still pending |
 | 5 — Integration + handoff | Live + connected | Not started |
 
 ## 11. Testing & Verification Protocol
