@@ -45,6 +45,7 @@
   --color-popover: var(--popover);
   --color-card-foreground: var(--card-foreground);
   --color-card: var(--card);
+  --color-shell-tint: var(--shell-tint);
   --radius-sm: calc(var(--radius) * 0.6);
   --radius-md: calc(var(--radius) * 0.8);
   --radius-lg: var(--radius);
@@ -74,6 +75,15 @@
   --border: #e5e7eb;
   --input: #e5e7eb;
   --ring: #2563eb;
+  /* Shell-only tokens (Phase 4.2): faint blue section wash + the calm, light
+     inversion of the lab's radial orb motif. Both derive from --primary so a
+     future accent change propagates. */
+  --shell-tint: #eff6ff;
+  --hero-glow: radial-gradient(
+    closest-side,
+    color-mix(in oklab, var(--primary) 14%, transparent),
+    transparent 75%
+  );
   --chart-1: oklch(0.87 0 0);
   --chart-2: oklch(0.556 0 0);
   --chart-3: oklch(0.439 0 0);
