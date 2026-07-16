@@ -81,6 +81,30 @@ bundle, but was a time-bomb for the next deploy. Not phase-scoped work —
 touched already-shipped session handling. Full investigation trail, fix
 design, and verification: docs/project-reference.md §9e. Test tables
 (sessions/trials/results/leads) were truncated after this work.
+A follow-up incident, found and fixed right after: §9e's halt-on-any-
+save-failure policy was working exactly as designed, but too strict — a
+real user lost an entire 5-game run because one Lock-On trial's insert
+hit a transient network drop, even though the trials saved immediately
+before and after it (same session_id/run_id) succeeded fine, proving the
+identity itself was healthy. Fixed with bounded retry-with-backoff
+inside saveTrial() only (1 initial + 2 retries, 400ms/1000ms) — but only
+for transient-shaped failures (HTTP status 0 = network, 503 = PostgREST/
+DB-layer transient); a real rejection (401/403/RLS) still fails fast,
+zero retries, since retrying a genuinely mismatched identity is pointless
+and only delays the still-necessary halt. Two real classification bugs
+caught by pr-review-toolkit and fixed: `error.code` presence is NOT a
+valid transient-vs-permanent signal (a transient PGRST000 carries a code
+too — classify by HTTP status instead, confirmed against the installed
+library's actual source); and `.eq(column, null)` silently never matches
+SQL NULL in PostgREST (needs `.is()` instead). A new migration
+(`supabase/migrations/20260714_trials_unique.sql`, applied) adds a
+partial unique index on trials so a retry can never create a duplicate
+row even in the worst case — confirmed live against the real migrated DB,
+not assumed. Two pr-review-toolkit passes, both clean by the second. Zero
+changes to any game file or the sequence wrapper — §9e's halt/restart
+architecture untouched, this only changes what counts as a failure worth
+halting over. Committed (`36af9e7`). Full detail: docs/project-reference.md
+§9f.
 Read docs/project-reference.md for full detail on any past phase before
 starting new work — don't re-derive decisions already made there.
  
