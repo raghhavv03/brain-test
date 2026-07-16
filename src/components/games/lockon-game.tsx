@@ -36,6 +36,13 @@ const GAME = "lockon";
 const PRACTICE_K = 2;
 // Selection is spatial and untimed, so taps get a forgiving halo.
 const HIT_PAD_PX = 10;
+// On phones the canvas renders below its native 600px width (see the
+// aspect-ratio-scaled container below), which shrinks HIT_PAD_PX's on-screen
+// size right along with it. Floor the on-screen hit radius at a standard
+// touch-target minimum regardless of display scale — arena-space only, so
+// OBJECT_RADIUS (physics/rendering) and HIT_PAD_PX's native-scale behavior
+// are both untouched at 1x.
+const MIN_TOUCH_HIT_RADIUS_PX = 22;
 const FEEDBACK_MS = 1500; // between-round reveal — pacing only, not measured
 
 // Skin-only rendering constants. The orb is baked once into an offscreen
@@ -283,7 +290,12 @@ export function LockOnGame({
         nearest = i;
       }
     });
-    if (nearest === -1 || nearestDist > OBJECT_RADIUS + HIT_PAD_PX) return;
+    const displayScale = rect.width / ARENA.width;
+    const hitRadius = Math.max(
+      OBJECT_RADIUS + HIT_PAD_PX,
+      MIN_TOUCH_HIT_RADIUS_PX / displayScale
+    );
+    if (nearest === -1 || nearestDist > hitRadius) return;
 
     const selected = selectedRef.current;
     if (selected.has(nearest)) {

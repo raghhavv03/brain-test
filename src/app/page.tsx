@@ -59,7 +59,7 @@ export default function Home() {
         {/* Hero — text + placeholder bottle visual (swap contract lives in
             hero-visual.tsx). */}
         <Section className="pt-16 md:pt-24">
-          <div className="grid items-center gap-12 md:grid-cols-[1fr_auto] md:gap-16">
+          <div className="grid items-center gap-12 md:grid-cols-[minmax(0,1fr)_auto] md:gap-16">
             <div className="flex max-w-2xl flex-col gap-6">
               <p className="font-mono text-xs uppercase tracking-widest text-primary">
                 Cognitive Performance

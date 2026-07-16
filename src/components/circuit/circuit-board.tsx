@@ -3,6 +3,16 @@
 import { AnimatePresence, motion } from "framer-motion";
 import { BOARD, type CircuitNode, type NodeId } from "@/lib/circuit/board";
 
+// Native node diameter at full (600px) board width, per the design's
+// original 44px buttons. Below that, diameter scales down with the board's
+// own rendered width (cqw) so it never overlaps the 70px center-to-center
+// MIN_GAP from board.ts — floored at 32px so it stays tappable at any size.
+const NODE_DIAMETER_PX = 44;
+const NODE_MIN_DIAMETER_PX = 32;
+const NODE_SIZE = `clamp(${NODE_MIN_DIAMETER_PX}px, ${
+  (NODE_DIAMETER_PX / BOARD.width) * 100
+}cqw, ${NODE_DIAMETER_PX}px)`;
+
 type CircuitBoardProps = {
   ref: React.Ref<HTMLDivElement>;
   board: CircuitNode[];
@@ -53,6 +63,10 @@ export function CircuitBoard({
         aspectRatio: `${BOARD.width} / ${BOARD.height}`,
         visibility: "hidden",
         transition: "none",
+        // Lets node buttons size themselves off this container's own
+        // rendered width (cqw), not the viewport — see the button's
+        // clamp() below.
+        containerType: "inline-size",
       }}
     >
       <div
@@ -118,18 +132,20 @@ export function CircuitBoard({
             <button
               type="button"
               onPointerDown={onNodeTap(node.id)}
-              className={`flex h-11 w-11 items-center justify-center rounded-full border font-mono text-sm font-semibold ${
+              className={`flex items-center justify-center rounded-full border font-mono text-sm font-semibold ${
                 isLinked
                   ? "border-primary bg-primary/20 text-primary"
                   : isWrong
                     ? "border-destructive bg-destructive/10 text-destructive"
                     : "border-border bg-secondary/70 text-foreground"
               }`}
-              style={
-                isLinked
+              style={{
+                width: NODE_SIZE,
+                height: NODE_SIZE,
+                ...(isLinked
                   ? { boxShadow: "0 0 16px -2px var(--primary)" }
-                  : undefined
-              }
+                  : undefined),
+              }}
             >
               {node.id}
             </button>
