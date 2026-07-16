@@ -1,18 +1,18 @@
 "use client";
 
 /*
- * EnterLabButton — the designed shell→lab entry moment (Phase 4.2, §8a).
- *
- * Renders the "Take the Brain Test" CTA. On click it plays a ~400ms radial
- * sweep — lab-dark irises out from the click point over the light shell —
- * then navigates to /test. The sweep lives entirely on the shell side as an
- * exit transition; /test itself is untouched.
+ * ExitLabLink — the results→shell exit moment (Phase 4.2, §8a), the inverse
+ * of EnterLabButton. On click it plays a ~400ms radial sweep — shell-light
+ * irises out from the click point over the dark lab — then navigates to the
+ * given href. Results-screen content holds static underneath; nothing about
+ * results state is touched.
  *
  * Reduced motion: the click handler leaves the <Link> alone, so navigation
  * is native and instant — no sweep code runs at all.
  *
  * Thin wrapper over the shared ZoneSweep primitive (src/components/shell/
- * zone-sweep.tsx), theme="lab" — see ExitLabLink for the inverse direction.
+ * zone-sweep.tsx), theme="shell" — see EnterLabButton for the inverse
+ * direction.
  */
 
 import { useState } from "react";
@@ -24,17 +24,13 @@ import { useReducedMotion } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { resolveSweepOrigin, ZoneSweep, type SweepOrigin } from "./zone-sweep";
 
-type EnterLabButtonProps = {
-  size?: "sm" | "lg" | "default";
+type ExitLabLinkProps = {
+  href: string;
   className?: string;
   children: React.ReactNode;
 };
 
-export function EnterLabButton({
-  size = "default",
-  className,
-  children,
-}: EnterLabButtonProps) {
+export function ExitLabLink({ href, className, children }: ExitLabLinkProps) {
   const router = useRouter();
   const reducedMotion = useReducedMotion();
   const [sweepOrigin, setSweepOrigin] = useState<SweepOrigin | null>(null);
@@ -49,10 +45,10 @@ export function EnterLabButton({
   return (
     <>
       <Button
-        size={size}
+        variant="ghost"
         className={className}
         nativeButton={false}
-        render={<Link href="/test" onClick={handleClick} />}
+        render={<Link href={href} onClick={handleClick} />}
       >
         {children}
       </Button>
@@ -60,8 +56,8 @@ export function EnterLabButton({
         ? createPortal(
             <ZoneSweep
               origin={sweepOrigin}
-              theme="lab"
-              onDone={() => router.push("/test")}
+              theme="shell"
+              onDone={() => router.push(href)}
             />,
             document.body,
           )

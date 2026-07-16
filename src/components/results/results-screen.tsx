@@ -15,6 +15,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { animate, motion, useReducedMotion } from "framer-motion";
 import { Button } from "@/components/ui/button";
+import { ExitLabLink } from "@/components/shell/exit-lab-link";
 import { computeBrainScore } from "@/lib/scoring/brain-score";
 import { fetchRunTrials, saveResult } from "@/lib/scoring/session";
 import { ensureSession } from "@/lib/supabase/session";
@@ -205,6 +206,10 @@ export function ResultsView({
             valid for this session.
           </p>
         )}
+
+        <ExitLabLink href="/" className="text-muted-foreground">
+          Back to [BRAND] site
+        </ExitLabLink>
 
         <p className="max-w-sm text-center text-xs text-muted-foreground">
           A self-assessment of one sitting&apos;s performance — not a medical

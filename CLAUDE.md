@@ -10,117 +10,31 @@ Supabase (Postgres) · Vercel · Recharts (results chart). Timing: performance.n
 Vitest for scoring-engine unit tests.
 
 ## Current Status (see docs/project-reference.md §10 for the full build-order table)
-Phases 0-2 done: all five games (Trigger, Gatekeeper, Echo, Circuit, Lock-On)
-built, logic-verified against real Supabase data, reviewed.
-Phase 3 is DONE. 3.1 (sequence wrapper, /test), 3.2 (scoring engine,
-src/lib/scoring/), and 3.3 (results screen, src/components/results/) are all
-built, verified against live Supabase data, and committed. 3.3 shipped in
-two parts: (a) headline score + domain radar + strength/growth insights —
-the radar's insufficient_data treatment (never rendered as zero, never as a
-broken chart) was the main design problem, solved with a dashed/greyed
-spoke+edge convention; (b) email capture (`leads`, one row per session via a
-unique constraint + 23505 duplicate handling) and a shareable result-card
-PNG (SVG string → canvas → Web Share API with a download fallback, feature-
-detected via canShare() not just navigator.share existence, and pre-
-rendered on mount to avoid Safari's user-activation timeout). Two real bugs
-were caught by live-data verification and fixed before commit — see
-docs/project-reference.md §9c for what they were and why static review
-alone wouldn't have caught them.
-Phase 4 is in progress. The game-skin batch is DONE: Echo (signal-decoding
-stream + a PrevFeedback chip resolving the previously-known feedback-overlap
-issue), Circuit (glowing trail/node-board), and Lock-On (canvas orb-sprite +
-trail/reticle skin, built for phone frame-rate headroom) are all skinned,
-matching Trigger/Gatekeeper's established visual language — same onResult
-display-hook pattern, same HUD/card grammar — not a new mechanism. All five
-games are now visually and mechanically complete. Verified against live
-Supabase data, including a follow-up sustained-play pass on Lock-On (7 live
-rounds) specifically checking mark_ms_measured/motion_ms_measured for
-drift under repeated play — none found. See docs/project-reference.md §4
-and the new §9d for full detail, including a known verification gap (K-level
-diversity wasn't achievable via the browser-automation tool) and an
-unrelated pre-existing type-fixture bug found and fixed alongside this work
-(insights.test.ts — see §9d; a `npm run typecheck` script now exists
-specifically so this class of gap doesn't recur).
-Shell pages: the three core shells — Home, Science, and About — are DONE,
-governed by three locked design-system decisions in docs/project-reference.md
-§8a: the site-wide palette split (calm light shells vs. the existing dark
-lab), the landing-hero constraints, and the placeholder-copy rule (all shell
-copy `[PLACEHOLDER]`-tagged, no fabricated testimonials/citations/claims —
-a liability guard given the neurosurgery credibility the brand rests on).
-Home ships the placeholder bottle hero (no WebGL — layered SVG/Framer Motion,
-documented swap contract for the real product model) and the Home→/test
-shell→lab entry sweep. Science's "how scoring works" section carries the
-project owner's interim-approved copy (still `[PLACEHOLDER]`-tagged pending
-scientific-team sign-off). All three typechecked, build-verified, and
-click-through-verified; see docs/project-reference.md §8a and §10.
-Product and Privacy & Disclaimer shell pages: DONE (Phase 4.2 second
-batch). Same shell primitives, no new components/tokens; footer gained
-both links (header nav unchanged, matching About's precedent). Product
-is pure `[PLACEHOLDER]` per §8a — disabled shadcn Button CTA (not
-EnterLabButton, not a live link) with a visible "unwired" caption, wired
-to the agency site by a later team. Privacy is deliberately NOT filler:
-real final-intent "not a medical test" disclaimer and a factual
-what-we-collect section written strictly from the §9 schema (anonymous
-session, per-trial rows, results, opt-in email, user-agent); legal
-specifics (entity, processors, retention, rights/contact, governing law)
-are reasoned drafts each tagged `[PLACEHOLDER - LEGAL REVIEW]` — a
-deliberately distinct tag from marketing `[PLACEHOLDER]` so the two
-review queues' tag-searches don't collide. Typecheck clean, Playwright
-click-through + screenshot review done; a console 409 seen during
-verification was ruled pre-existing/by-design (ensureSession's tolerated
-duplicate-session insert). Full detail: docs/project-reference.md §8a
-("Phase 4.2 second batch").
-What's next in Phase 4: Content/Blog page (later SEO phase); a full
-responsive polish pass; the PWA manifest; and the results-screen→shell
-exit transition (only the Home→/test entry half of the shell↔lab
-transition exists so far). A real-phone check of all five shell pages is
-also still outstanding — see docs/project-reference.md §11.
-A production incident, found and fixed after the shell-page work above:
-a real user completed two full 5-game sessions on iPhone Safari with
-insufficient_data on every domain — zero trials, zero results saved,
-silently. Root cause: the anonymous-auth JWT (persisted in localStorage)
-could desync from the identity ensureSession() returned, most likely
-from iOS backgrounding/reloading the tab mid-flow, combined with every
-saveTrial() call being wrapped in a silent .catch(() => false). Fixed
-with a three-layer change — explicit Supabase auth config, a
-run-active-gated self-healing session listener (the key insight: silent
-self-heal is only safe *before* a run starts; mid-run it must halt and
-require a restart, never silently swap identities, or it risks splitting
-one run's trials across two session_ids), and a sequence-wrapper session
-gate plus a mid-run halt-and-restart screen. Two pr-review-toolkit passes
-caught and fixed three bugs in the fix itself (a permanently-stuck-on-
-rejection session cache, runActive never resetting after a successful
-run, a spurious first-load auth event). A separate, real Vercel env-var
-bug (both NEXT_PUBLIC_SUPABASE_* vars empty in the Production dashboard)
-was found and fixed along the way — didn't affect the already-built live
-bundle, but was a time-bomb for the next deploy. Not phase-scoped work —
-touched already-shipped session handling. Full investigation trail, fix
-design, and verification: docs/project-reference.md §9e. Test tables
-(sessions/trials/results/leads) were truncated after this work.
-A follow-up incident, found and fixed right after: §9e's halt-on-any-
-save-failure policy was working exactly as designed, but too strict — a
-real user lost an entire 5-game run because one Lock-On trial's insert
-hit a transient network drop, even though the trials saved immediately
-before and after it (same session_id/run_id) succeeded fine, proving the
-identity itself was healthy. Fixed with bounded retry-with-backoff
-inside saveTrial() only (1 initial + 2 retries, 400ms/1000ms) — but only
-for transient-shaped failures (HTTP status 0 = network, 503 = PostgREST/
-DB-layer transient); a real rejection (401/403/RLS) still fails fast,
-zero retries, since retrying a genuinely mismatched identity is pointless
-and only delays the still-necessary halt. Two real classification bugs
-caught by pr-review-toolkit and fixed: `error.code` presence is NOT a
-valid transient-vs-permanent signal (a transient PGRST000 carries a code
-too — classify by HTTP status instead, confirmed against the installed
-library's actual source); and `.eq(column, null)` silently never matches
-SQL NULL in PostgREST (needs `.is()` instead). A new migration
-(`supabase/migrations/20260714_trials_unique.sql`, applied) adds a
-partial unique index on trials so a retry can never create a duplicate
-row even in the worst case — confirmed live against the real migrated DB,
-not assumed. Two pr-review-toolkit passes, both clean by the second. Zero
-changes to any game file or the sequence wrapper — §9e's halt/restart
-architecture untouched, this only changes what counts as a failure worth
-halting over. Committed (`36af9e7`). Full detail: docs/project-reference.md
-§9f.
+Phases 0-3 done: all five games built/skinned/verified against live Supabase
+data; sequence wrapper, scoring engine, and results screen (score, radar,
+insights, email capture, share card) all built and verified. Detail:
+project-reference.md §3-§9c.
+
+Phase 4 (polish/PWA) in progress. Shipped so far:
+- All five games skinned to one visual system (§9d).
+- All five core shell pages built: Home, Science, About, Product, Privacy &
+  Disclaimer (§8a) — two-tag placeholder convention ([PLACEHOLDER] vs
+  [PLACEHOLDER - LEGAL REVIEW]) established there.
+- Shell↔lab transition, both directions: Home→/test entry sweep and the
+  results→shell exit sweep, sharing one primitive
+  (src/components/shell/zone-sweep.tsx). Both verified live, reduced-motion
+  respected. Detail: §8a, §8b.
+
+Remaining Phase 4 scope: Content/Blog page (deferred, later SEO phase); a
+full responsive polish pass; the PWA manifest; a real-phone check of all
+five shell pages (§11).
+
+Two post-launch production incidents (iOS Safari session-integrity data
+loss; an over-strict halt policy costing a full run on one dropped save)
+were found and fixed outside the phase sequence — session-identity/save-
+reliability hardening on already-shipped code, not games/scoring bugs.
+Full detail: §9e, §9f. Test tables were truncated after each.
+
 Read docs/project-reference.md for full detail on any past phase before
 starting new work — don't re-derive decisions already made there.
  
