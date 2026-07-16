@@ -53,12 +53,28 @@ shell→lab entry sweep. Science's "how scoring works" section carries the
 project owner's interim-approved copy (still `[PLACEHOLDER]`-tagged pending
 scientific-team sign-off). All three typechecked, build-verified, and
 click-through-verified; see docs/project-reference.md §8a and §10.
-What's next in Phase 4: Product, Privacy & Disclaimer, and Content/Blog
-pages (deferred this session); a full responsive polish pass; the PWA
-manifest; and the results-screen→shell exit transition (only the
-Home→/test entry half of the shell↔lab transition exists so far). A real-
-phone check of the shell pages is also still outstanding — see
-docs/project-reference.md §11.
+Product and Privacy & Disclaimer shell pages: DONE (Phase 4.2 second
+batch). Same shell primitives, no new components/tokens; footer gained
+both links (header nav unchanged, matching About's precedent). Product
+is pure `[PLACEHOLDER]` per §8a — disabled shadcn Button CTA (not
+EnterLabButton, not a live link) with a visible "unwired" caption, wired
+to the agency site by a later team. Privacy is deliberately NOT filler:
+real final-intent "not a medical test" disclaimer and a factual
+what-we-collect section written strictly from the §9 schema (anonymous
+session, per-trial rows, results, opt-in email, user-agent); legal
+specifics (entity, processors, retention, rights/contact, governing law)
+are reasoned drafts each tagged `[PLACEHOLDER - LEGAL REVIEW]` — a
+deliberately distinct tag from marketing `[PLACEHOLDER]` so the two
+review queues' tag-searches don't collide. Typecheck clean, Playwright
+click-through + screenshot review done; a console 409 seen during
+verification was ruled pre-existing/by-design (ensureSession's tolerated
+duplicate-session insert). Full detail: docs/project-reference.md §8a
+("Phase 4.2 second batch").
+What's next in Phase 4: Content/Blog page (later SEO phase); a full
+responsive polish pass; the PWA manifest; and the results-screen→shell
+exit transition (only the Home→/test entry half of the shell↔lab
+transition exists so far). A real-phone check of all five shell pages is
+also still outstanding — see docs/project-reference.md §11.
 A production incident, found and fixed after the shell-page work above:
 a real user completed two full 5-game sessions on iPhone Safari with
 insufficient_data on every domain — zero trials, zero results saved,

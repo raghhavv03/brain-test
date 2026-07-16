@@ -3,6 +3,8 @@ import Link from "next/link";
 const footerLinks = [
   { href: "/science", label: "The Science" },
   { href: "/about", label: "About" },
+  { href: "/product", label: "Product" },
+  { href: "/privacy", label: "Privacy & Disclaimer" },
   { href: "/test", label: "Take the Brain Test" },
 ];
 
