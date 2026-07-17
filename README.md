@@ -20,7 +20,9 @@ Next.js (App Router) + TypeScript · Tailwind · shadcn/ui · Framer Motion · S
    - `20260710_run_id_is_practice.sql`
    - `20260711_results_run_id_unique.sql`
    - `20260712_leads_session_id_unique.sql`
+   - `20260714_trials_unique.sql`
 4. `npm run dev` — open [http://localhost:3000](http://localhost:3000).
+5. Optional: `npx playwright install chromium` (once) to run the e2e suite.
 
 ## Scripts
 
@@ -31,9 +33,10 @@ Next.js (App Router) + TypeScript · Tailwind · shadcn/ui · Framer Motion · S
 | `npm run typecheck` | `tsc --noEmit` — checks every file `tsconfig.json` includes, e.g. test files. Run this separately; `npm run build` alone does not catch type errors in files the app's routes never import (see CLAUDE.md's HOW TO WORK). |
 | `npm run lint` | ESLint |
 | `npm test` | Vitest (scoring-engine unit tests) |
+| `npm run test:e2e` | Playwright — standing e2e suite, all 5 games + results live against dev server + Supabase (`tests/e2e/`) |
 
 ## Current status
 
-See CLAUDE.md's "Current Status" section and `docs/project-reference.md` §10 for the full build-order table. Phases 0–3 are done (all five games, sequence wrapper, scoring engine, results screen). Phase 4 is in progress: all five games are now fully skinned (Echo, Circuit, Lock-On skins landed and were verified against live Supabase data, matching Trigger/Gatekeeper's established visual language). The three core shell pages (Home, Science, About) are also done; remaining in Phase 4: Product/Privacy/Blog pages, a responsive pass, the PWA manifest.
+See CLAUDE.md's "Current Status" section and `docs/project-reference.md` §10 for the full build-order table. Phases 0–3 are done (all five games, sequence wrapper, scoring engine, results screen, and a standing Playwright e2e suite — §9h). Phase 4 (polish/PWA) is in progress: all five games skinned, all five core shell pages built (Home/Science/About/Product/Privacy & Disclaimer), the shell↔lab transition (both directions) and the responsive pass (4.3, 3 bugs fixed) are all done and verified. Remaining: Content/Blog page (deferred), the PWA manifest, and a real-phone check of the shell pages (emulated viewports only so far).
 
-A production session-integrity incident — silent, total trial-save loss on iOS Safari, root-caused to an anonymous-auth identity desync — was found, fixed with a three-layer session-handling change, and verified after the shell-page work. See `docs/project-reference.md` §9e for the full investigation trail and fix design.
+Two post-launch production incidents on already-shipped code — an iOS Safari session-integrity data loss, and a follow-up where the fix's own halt policy cost a full run over one dropped save — were found and fixed. See `docs/project-reference.md` §9e/§9f.

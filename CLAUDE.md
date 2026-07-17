@@ -7,7 +7,8 @@ Audience for v1: Performance Seekers (professionals + competitive-exam students)
 ## Stack
 Next.js (App Router) + TypeScript · Tailwind · shadcn/ui · Framer Motion ·
 Supabase (Postgres) · Vercel · Recharts (results chart). Timing: performance.now().
-Vitest for scoring-engine unit tests.
+Vitest for scoring-engine unit tests. Playwright (`@playwright/test`) for the
+standing e2e suite — `npm run test:e2e` (tests/e2e/).
 
 ## Current Status (see docs/project-reference.md §10 for the full build-order table)
 Phases 0-3 done: all five games built/skinned/verified against live Supabase
@@ -31,6 +32,11 @@ Phase 4 (polish/PWA) in progress. Shipped so far:
   all layout/hit-testing only, no science-rule surface touched.
   pr-review-toolkit clean; live-Supabase-verified (real Circuit/Lock-On runs
   plus a live results-screen check via CDP). Detail: §9g.
+- Standing Playwright e2e suite (tests/e2e/, `npm run test:e2e`): drives all
+  5 games' practice+scored rounds through to the results screen live against
+  the dev server + real Supabase (RLS-respecting reads via a captured anon
+  session JWT, never a service-role key). Each per-game helper recomputes
+  its own ground truth rather than trusting the app. Detail: §9h.
 
 Remaining Phase 4 scope: Content/Blog page (deferred, later SEO phase); the
 PWA manifest; a real-phone check of all five shell pages, now also covering
@@ -54,8 +60,8 @@ Project skills (in .claude/skills/, auto-load, follow without exception):
 Installed plugins:
 - `pr-review-toolkit` — run a review pass at the end of each phase, and any time
   a change touches measurement logic, before I commit.
-- `example-skills` (anthropic-agent-skills) — includes a web-app testing skill
-  (Playwright-based). Use it for end-to-end checks in Phase 3 onward.
+- `example-skills` (anthropic-agent-skills) — Playwright web-app testing skill;
+  mostly superseded now by the checked-in suite (`npm run test:e2e`, §9h).
 MCP: a Supabase MCP server is connected (read-only, scoped to this project,
 registered at user scope so it loads regardless of working directory) —
 prefer it over the /dev/... debug-page pattern for reading data; it still

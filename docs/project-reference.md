@@ -34,7 +34,7 @@ Standalone project — no integration with any other website. Agency's product-s
 | PostHog | Funnel analytics (Phase 5) |
 | performance.now() | High-precision timing |
 | Vitest | Unit tests for pure logic (scoring engine) |
-| Playwright (via example-skills) | E2E checks, Phase 3 onward |
+| Playwright (`@playwright/test`) | Standing e2e suite, `npm run test:e2e` — see §9h |
 
 One stack for everything. Games differ in art/logic, not technology. Only Lock-On needed extra animation care (Canvas 2D, not DOM).
 
@@ -309,51 +309,35 @@ Known verification gap: all 7 rounds landed at K=3. Reliable K-escalation requir
 
 ### 9e. Production Session-Integrity Incident & Fix (July 2026)
 
-A user reported completing two full 5-game sessions on the deployed Vercel site via iPhone Safari; every domain came back `insufficient_data`. This started as a bug investigation and grew into a real architectural addition to session handling — recorded here in full rather than as a changelog line, since the fix's central design insight (below) governs how any future session/identity-adjacent change must be reasoned about.
+A user completed two full 5-game sessions on production (iPhone Safari); every domain came back `insufficient_data` — zero trials/results actually saved, no crash, no visible error. Root cause: the Supabase anon-auth JWT (persisted in `localStorage`) could desync from the identity `ensureSession()` handed back to game code, most likely from iOS backgrounding/reloading mid-flow — combined with every `saveTrial()` wrapped in a silent `.catch(() => false)`, so the RLS rejection this caused vanished with no trace.
 
-**The bug.** Investigation confirmed zero trials and zero results saved to Supabase for the reported session — not misfiled under an unexpected `session_id`/`run_id` (`fetchRunTrials`'s exact-pair filter was intact, and there were zero orphaned trials in the whole table at the time), genuinely absent. Root cause: the Supabase client's anonymous-auth JWT, persisted in `localStorage`, could desync from the identity `ensureSession()` was handing back to game code — most likely triggered by iOS Safari backgrounding or reloading the tab mid-flow. Every `saveTrial()` call was wrapped in `.catch(() => false)`, so once RLS rejected an insert (`auth.uid() = session_id` no longer held), the failure vanished completely: no crash, no console error, no visible state change. A user could play the entire ten-minute sequence and only discover the loss at the results screen, looking at an honest-seeming "insufficient data" message with no indication anything had gone wrong upstream.
+A separate, real bug surfaced during investigation: both Supabase env vars were genuinely empty in Vercel's Production dashboard (a live time-bomb for the *next* deploy, harmless to the already-running bundle since Next.js inlines `NEXT_PUBLIC_*` at build time — a dashboard value alone never proves what's currently live, see §11). Dashboard edits silently failed to persist; fixed via `vercel env add` through the CLI instead.
 
-**Investigation trail — Candidate A (broken production env vars), investigated and ruled out.** The first hypothesis was that Vercel's Production environment variables for `NEXT_PUBLIC_SUPABASE_URL`/`NEXT_PUBLIC_SUPABASE_ANON_KEY` were missing or wrong. This could not be settled by checking the Vercel dashboard alone: Next.js inlines `NEXT_PUBLIC_*` variables into the client JS bundle at *build time*, not read at runtime — so a dashboard showing a broken/empty value only proves the *next* build would ship broken, it says nothing about what's in the bundle already being served to users right now. Closing this required fetching the actual live production JS chunks and confirming the correct Supabase project URL and a matching anon key (decoded via its JWT `ref`/`role` claims) were genuinely baked into what users' browsers were running. They were — Candidate A was closed by inspecting the live bundle, not by trusting the dashboard.
+**Three-layer fix:**
+1. `client.ts` — explicit auth config (`persistSession`, `autoRefreshToken`, `pkce`, fixed `storageKey`) instead of supabase-js's implicit defaults.
+2. `session.ts` — a self-healing `onAuthStateChange` listener gated on a `runActive` flag. **Key design insight:** silent self-heal is only safe *before* a run starts (nothing saved yet under any `run_id`); once active, a detected desync must never silently swap identities — that would risk splitting one run's trials across two `session_id`s, violating §9b's isolation invariant. The naive unconditional-self-heal version would have been *worse* than the bug (silent contaminated partial run vs. honest total loss). Mid-run, the listener deliberately does nothing, so the next save fails fast and visibly via RLS instead.
+3. `test/page.tsx` — an intro-screen session gate (checking/ready/blocked, Retry button) before "Begin," plus a mid-run halt-and-restart screen for any step reporting a save failure. Restart reuses §9b's existing whole-sequence-restart policy, not new recovery machinery.
 
-A real, separate bug *was* found and fixed along the way, though: both `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` were genuinely empty in the Vercel dashboard's Production scope. This hadn't broken anything live (per the build-time-inlining point above — the currently-deployed bundle predated the values going empty), but it was a live time-bomb: the next production build/deploy would have shipped with a non-functional Supabase client. Editing the values directly in the Vercel dashboard silently failed to persist (re-pulling via `vercel env pull` kept showing empty after saving), for reasons never identified; the fix was removing and re-adding both variables via `vercel env add` through the CLI instead, explicitly declining to mark them Sensitive since `NEXT_PUBLIC_*` variables are already public in the client bundle by design — marking them Sensitive would only hide the value from the dashboard/CLI without adding any actual protection.
+**Three bugs pr-review-toolkit caught in the fix itself** (full lesson for each folded into §11): (a) a rejected `sessionPromise` cached forever, making Retry hang indefinitely — fixed with `resetSession()`; this escaped the first Playwright pass because that test's simulated failure (blocked network call) never triggered a real `onAuthStateChange`, unlike the genuine desync mechanism. (b) `runActive` never reset after a *successful* run, permanently disabling pre-run self-heal for that tab's remaining lifetime — fixed by resetting it on the step that crosses into results. (c) a spurious auth event on first page load, before any identity existed yet, was reacted to needlessly — fixed by ignoring events until an identity has been established once.
 
-**The three-layer fix.**
-- **Layer 1 — `src/lib/supabase/client.ts`:** explicit auth configuration (`persistSession`, `autoRefreshToken`, `flowType: "pkce"`, a fixed `storageKey`) instead of relying on supabase-js's implicit defaults.
-- **Layer 2 — `src/lib/supabase/session.ts`:** a self-healing `onAuthStateChange` listener, gated on a `runActive` flag set by the sequence wrapper. This is the key design insight of the whole fix: silently re-authenticating to a new identity is only safe *before* a run starts, when no trials exist yet under any `run_id`. Once a run is active, a detected desync must never silently swap identities — doing so would risk splitting one run's trials across two different `session_id`s, a direct violation of §9b's isolation invariant (`fetchRunTrials`'s exact `(session_id, run_id)` filter has no way to recover a run split that way). The naive version of this fix — self-heal unconditionally, any time a desync is detected — would have been *worse* than the original bug: it trades an honest, total data loss (today's failure mode) for a silent, partial, contaminated run that still produces a real-looking headline score. Mid-run, the listener deliberately does nothing, leaving the stale cached identity in place so the next save fails fast and visibly via RLS rejection instead.
-- **Layer 3 — `src/app/test/page.tsx`:** an intro-screen session gate (checking/ready/blocked tri-state, with a Retry button, before "Begin" is enabled) and a mid-run halt-and-restart screen (any step reporting a save failure halts the sequence instead of silently continuing toward a bogus results screen). Restart intentionally reuses §9b's existing whole-sequence-restart policy rather than inventing new recovery machinery — the halted run's trials are simply abandoned under their own `run_id`, exactly like any other reload-abandoned run.
+**Verification.** 4 Playwright scenarios (pre-run gate, mid-run halt via blocked network, restart-recovery via a *genuine* cross-tab `storage`-event desync, a real unblocked full run) plus a red/green check proving the retest fails without the `resetSession()` fix and passes with it. Two pr-review-toolkit passes (full diff, then incremental on the fixes). `npm run typecheck`/`next build` clean throughout.
 
-**Three bugs the fix itself had, caught by pr-review-toolkit — each worth recording as its own lesson.**
-(a) `ensureSession()`'s memoized promise was never cleared on rejection, so once `createSession()` failed once, every subsequent call — including the user clicking "Retry" — returned the same permanently-rejected promise forever. Fixed with an explicit `resetSession()` export, called from the restart path. This bug specifically escaped the first Playwright test pass because that test's simulated failure (a blocked network call to the auth endpoint) never triggers a real `onAuthStateChange` event — the review agent's independent trace of the actual desync mechanism caught it where the test's failure model didn't match the incident's. General lesson: a test's simulated failure mode has to match the real failure's *mechanism*, not just its user-visible symptom, or the test can pass while the underlying bug ships anyway.
-(b) `runActive` was never reset back to `false` after a *successful* run reached the results screen — only on the halt-and-restart path. Since it's a module-level flag surviving the whole tab's lifetime, one successful run permanently disabled the pre-run self-heal for any later run attempted in that same tab. Fixed by resetting it in the step-advance handler when the final step crosses into the results screen.
-(c) A spurious auth-state-change event fires during the very first page load (before `createSession()` finishes establishing the initial identity), which the listener was reacting to unnecessarily — harmless (idempotent, pre-run) but wasteful. Fixed by ignoring events until an identity has actually been established once.
-
-**Verification.** Four Playwright scenarios: the pre-run gate (blocked → Retry → ready), a mid-run halt via a blocked network call, a mid-run halt-and-restart-recovery test using a *genuine* identity desync (Supabase's real cross-tab session sync via the native browser `storage` event — no production code modified to enable this), and a real unblocked full practice+scored run cross-checked against live Supabase data. A red/green check specifically confirmed the retooled desync-recovery test fails without bug (a)'s `resetSession()` fix and passes with it — proving the test actually exercises the bug rather than trivially passing either way. Two separate pr-review-toolkit passes: an initial full-diff review (which found bugs a/b/c above) and a second, incremental review scoped to just the three fixes, which came back clean, including explicit re-tracing of the `resetSession()`/`runActive`/`onAuthStateChange` interaction for races and the existing results-screen retake path. `npm run typecheck` and `next build` were clean throughout every stage.
-
-**Test-data hygiene.** `sessions`, `trials`, `results`, and `leads` were truncated after this session (standard practice per §9b — verification/test rows and real user data must never be mixed). The first genuinely clean data in these tables going forward is whatever real playthrough happens next.
+**Test-data hygiene.** `sessions`/`trials`/`results`/`leads` truncated after this work.
 
 ### 9f. Retry-Then-Halt Fix — a single dropped save no longer costs the whole run (July 2026, follow-up to §9e)
 
-A real user played a full 5-game run on iPhone; the score never came, with an on-screen message about a lost connection. Investigation confirmed §9e's halt-on-any-save-failure design fired correctly and exactly as designed — but the actual cause wasn't identity desync at all: a single trial insert (Lock-On scored round, one trial) genuinely dropped due to a transient network blip, the two trials saved immediately after it under the *same* session_id/run_id succeeded fine, and the whole 10-minute run was discarded over one lost packet. Confirmed via Supabase: all 4 other games' data complete and clean, Lock-On scored missing exactly `trial_index: 0`, zero results row (halt fired before reaching results, per §9e design).
+A user played a full 5-game run; the score never came. §9e's halt-on-any-save-failure fired correctly and as designed — but the cause wasn't identity desync: one Lock-On trial insert genuinely dropped from a transient network blip (the very next trials saved fine under the same identity), and the whole 10-minute run was discarded over one lost packet. The halt policy couldn't distinguish "one-off blip, identity fine" from "desync starting" — this fix adds that distinction.
 
-This is §9e's halt policy working as designed, but the policy itself was too strict for the common case: it can't distinguish "one-off network blip, identity fine" (proven by the very next trials succeeding under the same identity) from "desync starting, more failures coming" — so it treated every failure the same way. That distinction is exactly what this fix adds.
+**The fix — retry with backoff inside `saveTrial()` only** (`src/lib/engine/save-trials.ts`), zero changes to any game file or the sequence wrapper:
+- 1 initial attempt + 2 retries (400ms, 1000ms backoff), only for transient-shaped failures.
+- Classified by HTTP `status`, not `error.code` (see below): `status === 0` (network failure) or `503` (PostgREST/DB transient) retry; anything else (401/403/400) fails fast — a mismatched identity rejects identically every time, so retrying it is wasted latency before the still-necessary halt.
+- Duplicate-row guard: a best-effort existence check before each retry, backed by a real DB guarantee — `supabase/migrations/20260714_trials_unique.sql`, a partial unique index on `trials(session_id, run_id, game, trial_index, is_practice) WHERE run_id IS NOT NULL`. A retry that slips past the existence check gets `23505` instead of creating a duplicate; `saveTrial` treats `23505` on any attempt as success (also makes it idempotent against React StrictMode's double-invoke).
 
-**The fix — retry with backoff inside `saveTrial()` only** (`src/lib/engine/save-trials.ts`), zero changes to any game file, `GameProps`, or the sequence wrapper — §9e's halt/restart architecture is untouched, this only changes what counts as a "failure" worth halting over:
-- 1 initial attempt + 2 retries, 400ms then 1000ms backoff — but *only* for transient-shaped failures.
-- Classification is by HTTP `status`, not `error.code` (see the review-caught mistake below): `status === 0` (pure network failure — no response ever received) or `status === 503` (PostgREST/DB-layer transient unavailability) retry; anything else (401, 403 — including RLS's 42501, 400, etc.) fails fast, zero retries, since a genuinely mismatched identity rejects every attempt identically and retrying it is pure wasted latency before the (still-necessary) halt.
-- Duplicate-row guard, two layers: an existence check before each retry (best-effort — a query, not atomic), backed by a real DB guarantee — `supabase/migrations/20260714_trials_unique.sql` adds a partial unique index on `trials(session_id, run_id, game, trial_index, is_practice) WHERE run_id IS NOT NULL` (partial so standalone/direct game plays, which always have `run_id: null` and are never scored, don't collide with each other across independent visits). A retry that slips past the existence check now gets `23505` from the DB instead of creating a duplicate; `saveTrial` catches `23505` on *any* attempt (first or retry) and treats it as success — this also makes the function idempotent against a React StrictMode double-invoke, not just against the network race.
+**Two classification bugs caught by pr-review-toolkit, both closed by switching `error.code` → `status`:** (1) a transient `PGRST000` error still carries a non-empty `error.code` (confirmed by reading the installed `@supabase/postgrest-js` source) — the original `Boolean(error.code)` check wrongly failed it fast; `status` is the reliable signal (`0` = network failure, `503` = DB transient, both empirically confirmed). (2) the existence-check guard used `.eq("run_id", row.run_id)` unconditionally — PostgREST's `.eq()` never matches SQL `NULL`, silently breaking the guard for standalone plays (`run_id: null`); fixed with an explicit `.is()` branch for the null case.
 
-**Two real classification bugs caught by the first pr-review-toolkit pass, both closed by switching from `error.code` to `status`:**
-1. A PGRST-coded transient error (e.g. `PGRST000`, "could not connect to the database") *does* carry a non-empty `error.code`, despite being exactly the transient case retry exists for — the original `Boolean(error.code)` check wrongly treated it as a permanent rejection and failed fast. Confirmed by reading the installed `@supabase/postgrest-js` source directly (`node_modules/@supabase/postgrest-js/dist/index.mjs`): a non-ok HTTP response always populates `error` via `JSON.parse(body)`, `code` included, regardless of whether the underlying cause was transient or permanent — `code` presence alone was never a valid signal. `status`, by contrast, is explicitly set to `0` in the library's own fetch-rejection handler for a genuine network-level failure, and PostgREST's transient-unavailability responses are reliably `503` — both empirically confirmed, not assumed.
-2. The existence-check guard (`rowAlreadySaved`) used `.eq("run_id", row.run_id)` unconditionally — `.eq()` with a JS `null` does not match SQL `NULL` in PostgREST (confirmed against the library's own docs, which explicitly say to use `.is()` instead), so the guard silently never worked for standalone/direct plays. Fixed with an explicit `run_id === null ? .is(...) : .eq(...)` branch. Low impact (standalone plays are never scored), but a real latent bug.
+**Verification.** Pre-fix baseline reproduced live first (real dropped insert, confirmed via Supabase). Post-fix, live: simulated drop+retry succeeds; genuine identity desync still fails fast (~0.18s, zero wasted retries); a "response lost after commit" race caught by the existence check (no duplicate); classification fix verified against synthetic 503 (now retries) and 401 (still fails fast); the DB unique index verified with a real replayed duplicate insert returning actual `409/23505`, not just asserted from migration intent. Two pr-review-toolkit passes (full, then incremental). `npm run typecheck`/`next build` clean throughout.
 
-**Verification, two full passes plus an incremental review, each with live data:**
-- Pre-fix baseline reproduced first: a genuine iOS-style single dropped insert, confirmed via real Supabase rows (missing `trial_index`, zero results row) before writing any code.
-- Post-fix, live against the dev server + real Supabase throughout: a simulated dropped insert followed by a successful retry (no halt); a genuine cross-tab identity desync (real `storage`-event sync, same technique as §9e) still fails fast (0.18–0.19s, confirming zero wasted retries on a real rejection); a "response lost after commit" race (via Playwright's `route.fetch()` to genuinely commit server-side, then aborting the client's view of the response) caught by the existence check, no duplicate row; after the classification fix specifically, a synthetic PGRST000-coded 503 now correctly retries (previously would have wrongly failed fast) and a synthetic 401 still fails fast; and, after the migration was applied, the 23505 path verified two ways — `saveTrial` treats a `route.fulfill`'d 23505 as success (deterministic, tests the application code), and a *real* duplicate insert (captured request headers/body from a genuine successful save, replayed verbatim via Playwright's own request context against the live, migrated DB) returned an actual `409, code: "23505", constraint "trials_unique_scored_trial"` — the DB guarantee confirmed live, not assumed from the migration's intent. A full unblocked live run was re-verified against Supabase twice (once per fix round), byte-identical to the pre-fix baseline both times (25 scored + 3 practice, 0 discarded). `npm run typecheck` and `next build` clean throughout every round.
-- Two pr-review-toolkit passes: the first found the two classification bugs above plus the stale-comment/first-attempt-23505-is-not-dead-code questions (both resolved as correct-as-written); the second, scoped to the incremental fixes, confirmed all of it correct, including tracing the migration's partial-index column order against `rowAlreadySaved`'s query (usable, no full-scan risk) and confirming zero pre-existing duplicate rows in live data (495 rows checked) before the migration was applied — so the `CREATE UNIQUE INDEX` was guaranteed not to fail on existing data.
-
-**Known, accepted, non-blocking gaps, flagged rather than silently left implicit:**
-- `502`/`504`/`429` currently fail fast rather than retry — a real gap (Supabase's edge/gateway layer can emit these transiently, independent of PostgREST's own `503`), left as a deliberate, conscious choice rather than expanding `isTransient` speculatively; revisit if these show up in practice.
-- The existence-check guard can false-positive across independent standalone (`run_id: null`) replays of the same game by the same session (matching an unrelated earlier visit's row instead of confirming the current one) — impact is nil, since standalone plays are never scored and the partial unique index deliberately excludes them from the duplicate-prevention guarantee too.
+**Known, accepted gaps:** `502`/`504`/`429` currently fail fast rather than retry (Supabase's edge/gateway layer can emit these transiently, independent of `503`) — deliberate, revisit if seen in practice. The existence-check guard can false-positive across independent standalone (`run_id: null`) replays — nil impact, standalone plays are never scored.
 
 ### 9g. Phase 4.3 — Responsive Polish Pass (July 2026)
 
@@ -373,88 +357,44 @@ route × breakpoint combination — the scan caught the one real overflow bug
 below that eyeballing screenshots alone had already passed over once.
 
 **Three real bugs found, all fixed:**
-1. **Home hero, horizontal overflow at exactly the 768px tablet breakpoint**
-   (confirmed via the scan: document 904px wide against a 768px viewport,
-   nowhere else). Root cause: `md:grid-cols-[1fr_auto]`
-   (`src/app/page.tsx`) — a bare CSS Grid `1fr` track defaults its minimum
-   width to its content's min-content, not zero. The h1's longest word
-   (`[PLACEHOLDER]` at `md:text-6xl`) needed ~464px; only ~304px was
-   available in that column at 768px, so the whole grid — and the page —
-   overflowed sideways. Not reproducible at mobile (column stacks, `md:`
-   inactive) or desktop (enough room for the same min-content). Fix:
-   `md:grid-cols-[minmax(0,1fr)_auto]` — one line, re-verified clean via the
-   same scan afterward, zero flags across every route/breakpoint.
-2. **Lock-On, undersized tap targets on mobile.** `OBJECT_RADIUS` (18,
-   ARENA-space, ARENA = 600×400) and the existing `HIT_PAD_PX` (10,
-   also ARENA-space) both shrink proportionally when the canvas renders
-   below its native 600px width — at mobile the canvas displays at ~277px
-   (0.46× scale), putting the effective on-screen hit radius at ~13px,
-   under any reasonable touch-target minimum. Fix, in
-   `src/components/games/lockon-game.tsx`: added
-   `MIN_TOUCH_HIT_RADIUS_PX = 22` and, in `handlePointerDown`,
-   `hitRadius = Math.max(OBJECT_RADIUS + HIT_PAD_PX, MIN_TOUCH_HIT_RADIUS_PX / displayScale)`
-   in place of the old fixed threshold. `OBJECT_RADIUS` itself — physics,
-   rendering, sprite sizing — is untouched everywhere else; only the local
-   hit-test threshold changed. At `displayScale >= 1` (tablet/desktop) this
-   algebraically collapses to the exact old value (28), confirmed by
-   pr-review-toolkit doing the arithmetic directly rather than trusting the
-   comment.
-3. **Circuit, node crowding/overlap on mobile.** Node buttons were a
-   CSS-fixed 44×44px (`h-11 w-11`) at every breakpoint, but node centers
-   live in a 600×400 "board space" (`MIN_GAP = 70` between centers,
-   `src/lib/circuit/board.ts`) that itself renders at a shrunk scale on
-   mobile — center-to-center spacing shrinks to ~37px while node diameter
-   stayed fixed at 44px, so nodes visually and functionally overlapped
-   (confirmed in screenshots: e.g. adjacent nodes' circles overlapping).
-   Fix, in `src/components/circuit/circuit-board.tsx`: `container-type:
-   inline-size` on the board container, node size now
-   `clamp(32px, 7.3333cqw, 44px)` (`(NODE_DIAMETER_PX / BOARD.width) * 100`)
-   instead of the fixed Tailwind size classes — diameter now scales down
-   proportionally with the board's own rendered width, floored at 32px,
-   capped at the original 44px. `circuit-board.tsx` is purely presentational
-   (`onNodeTap` passed in as a prop); `board.ts`'s `MIN_GAP`/
-   `SPAWN_MARGIN`/`SEQUENCE` and `elapsed_since_first_tap_ms` in
-   `circuit-game.tsx` are untouched by this diff.
+1. **Home hero, horizontal overflow at exactly the 768px tablet breakpoint.**
+   `md:grid-cols-[1fr_auto]` (`src/app/page.tsx`) — a bare CSS Grid `1fr`
+   track defaults its minimum width to its content's min-content, not zero;
+   the h1's longest word needed ~464px against only ~304px available at
+   768px specifically (mobile stacks the column, desktop has room). Fix:
+   `md:grid-cols-[minmax(0,1fr)_auto]`.
+2. **Lock-On, undersized tap targets on mobile.** `OBJECT_RADIUS`/`HIT_PAD_PX`
+   are ARENA-space and shrink with the canvas's display scale — at mobile
+   (~0.46×) the effective hit radius fell to ~13px. Fix, in
+   `lockon-game.tsx`: `MIN_TOUCH_HIT_RADIUS_PX = 22`,
+   `hitRadius = Math.max(OBJECT_RADIUS + HIT_PAD_PX, MIN_TOUCH_HIT_RADIUS_PX / displayScale)`.
+   Collapses to the exact old value (28) at `displayScale >= 1` — physics/
+   rendering untouched, only the hit-test threshold changed.
+3. **Circuit, node crowding on mobile.** Node buttons were a CSS-fixed
+   44×44px while board-space center-to-center spacing (`MIN_GAP = 70`)
+   shrank to ~37px on-screen at mobile, so nodes overlapped. Fix, in
+   `circuit-board.tsx`: `container-type: inline-size` + node size
+   `clamp(32px, 7.3333cqw, 44px)`, scaling with the board's own rendered
+   width. Purely presentational — `board.ts`'s sequence/gap constants and
+   `elapsed_since_first_tap_ms` untouched.
 
-**Ruled out, not bugs (worth recording so a future pass doesn't re-flag
-them):**
-- Ghost/duplicated text visible near the top of some full-page Playwright
-  screenshots (e.g. `/about`) — a Chromium full-page-capture compositing
-  artifact from the sticky header's `backdrop-blur`
-  (`src/components/shell/site-header.tsx`), not a real rendering bug. A
-  viewport-only crop of the same page at the same scroll position is clean.
-  If a future full-page screenshot on this app shows text bleeding through
-  near a sticky/blurred header, check a plain viewport screenshot before
-  treating it as a real defect.
-- Gatekeeper's response "zone" — the go/no-go response listener is bound at
-  `window` level (any tap or keypress anywhere counts), not to a bounded
-  DOM element, so there is no touch-target sizing concern there despite the
-  visual circle being the only thing on screen.
+**Ruled out, not bugs:** ghost/duplicated text near a sticky `backdrop-blur`
+header in some full-page Playwright screenshots — a Chromium full-page-
+capture compositing artifact, not a real defect (a plain viewport screenshot
+at the same scroll position is clean; check that before re-flagging).
+Gatekeeper's response zone is a `window`-level listener, no touch-target
+concern despite the visual circle.
 
-**Review and verification.**
-- `npm run typecheck` clean after every edit.
-- pr-review-toolkit run on the Circuit/Lock-On diff specifically (interaction/
-  hit-testing layer, per CLAUDE.md skill rules) — clean, no findings at or
-  above the reporting threshold. Independently re-derived the
-  `displayScale` algebra and traced the `rect.width === 0` edge case
-  (coupled through the same variable that would also make `nearestDist`
-  non-finite, so `nearest` stays `-1` and `hitRadius` is never reached in a
-  false-positive state).
-- Live Supabase verification, both real automated runs via the standalone
-  `/circuit` and `/lockon` routes at 375px width: Circuit — 16/16 taps
-  correct, 0 errors, `elapsed_since_first_tap_ms` chain intact, every
-  `stimulus.expected` matched `response.tapped`. Lock-On — 3 taps placed on
-  3 real, distinct orb positions (found via pixel-blob detection on the
-  canvas output, not guessed) resolved to `selected_indices` matching
-  exactly those 3 orbs, no cross-registration onto a neighboring orb despite
-  the larger tolerance; saved `response`/`correct_count`/`accuracy` matched
-  the on-screen result exactly.
-- Results screen + radar, live-verified via the §8b technique (a human
-  played a real full 5-game run; Playwright attached via `connect_over_cdp`
-  to that tab and resized its viewport across all three breakpoints) — clean
-  at all three, radar and domain bars reflow correctly, no overflow
-  (`scrollWidth` matched viewport exactly at 375/768/1280).
-- `npm run test` — 43/43 Vitest passing throughout (scoring engine
+**Review and verification.** `npm run typecheck` clean after every edit.
+pr-review-toolkit on the Circuit/Lock-On diff — clean, independently
+re-derived the `displayScale` algebra and the `rect.width === 0` edge case.
+Live Supabase verification via the standalone `/circuit`/`/lockon` routes at
+375px: Circuit 16/16 taps correct, 0 errors; Lock-On's 3 taps (found via
+pixel-blob detection on the canvas, not guessed) resolved to the correct
+`selected_indices`, no cross-registration onto a neighboring orb. Results
+screen + radar re-verified at all three breakpoints via the §8b
+`connect_over_cdp` technique on a real completed run — no overflow.
+`npm run test` — 43/43 Vitest passing throughout (scoring engine
   untouched; sanity check only).
 
 **Test-data hygiene.** The Circuit/Lock-On automated verification rows were
@@ -470,6 +410,55 @@ next phase.
 check flagged as outstanding since §8a/§8b (§10, §11) still hasn't happened,
 and now covers these three fixes too, not just the original shell pages.
 
+### 9h. E2E Core-Flow Suite (Step 3.4, closed — July 2026)
+
+`tests/e2e/` (`playwright.config.ts` + `helpers/` + `core-flow.spec.ts`),
+`npm run test:e2e` (`@playwright/test`, a real installed dependency now, not
+a throwaway script). Drives all 5 games' practice+scored rounds live against
+the dev server + real Supabase through to the results screen, plus a
+duplicate-upsert check on `results`. Reads are RLS-respecting: the anon
+session JWT is captured off the real `Authorization` header on intercepted
+`trials` POST requests (network interception, no test-only hook added to app
+code), never a service-role key.
+
+Each per-game helper (`trigger.ts`/`gatekeeper.ts`/`echo.ts`/`circuit.ts`/
+`lockon.ts`) independently recomputes ground truth from the DOM/canvas
+rather than trusting the app under test — Gatekeeper reads go/no-go off the
+rendered stimulus text, Echo tracks its own 2-back window from displayed
+letters — so assertions diff *intent* against saved rows, not just "did it
+crash."
+
+**Lock-On's deterministic-miss technique.** Target assignment
+(`round.ts`'s `pickTargets`) is genuinely uniform-random with no exploitable
+structure, and visually indistinguishable from a distractor once motion
+starts (the point of the game) — a blind k-subset click is only a miss ~95%
+of the time at K=3, not deterministic. The helper instead reads the
+marking-phase reticle ring directly off canvas pixels (`getImageData`,
+color-distance to the resolved `--primary` token) to find true targets, then
+tracks identity through the 6s motion phase via nearest-neighbor matching
+sampled every 100ms — reliable specifically because `physics.ts`'s 45px
+object-separation floor bounds worst-case ambiguity below the ~17px max
+per-sample displacement. First version scanned a ±40px box around each
+object and false-positived by picking up a *neighboring* object's reticle at
+the game's 54px minimum spawn gap; fixed by scanning only the ring's own
+thin annulus (22–26px), provably safe at that gap.
+
+**Results screen has no URL-backed state.** `/test`'s step/runId live in
+plain `useState`, not the URL — a page reload always drops back to the
+intro screen, even for an already-completed run (matches the documented
+"refresh mid-run restarts as a new run" policy). There is no way to reload
+directly onto a finished run's results screen. The upsert idempotency check
+(`saveResult`'s `onConflict: run_id, ignoreDuplicates: true`) accordingly
+uses a second real POST to the same endpoint with the same captured JWT,
+not a UI remount.
+
+Verified live end-to-end: 110+ trial rows across Trigger/Gatekeeper/Echo/
+Circuit, 2 Lock-On rounds (1 practice + 1 deliberate scored miss, both
+correctly zero-overlap with true targets), 1 results row with all 5 domains
+`"scored"` and a real headline score, confirmed non-duplicated after a
+second upsert. Scope: the 5 games + results only — no email capture or
+share-card checks (results-screen part (b), §9c, out of scope).
+
 ## 10. Build Order
 
 | Phase | Goal | Status |
@@ -477,7 +466,7 @@ and now covers these three fixes too, not just the original shell pages.
 | 0 — Foundations | Live empty site | Done — Next.js+Tailwind+shadcn deployed to Vercel; design tokens set; Supabase (schema, RLS, anonymous auth) created; env vars set in both .env.local and Vercel |
 | 1 — Engine + Trigger | One game measuring + saving correctly | Done — engine verified, Trigger built/skinned/reviewed/committed/pushed |
 | 2 — Rest of battery | All 5 games | Done — Gatekeeper, Echo, Circuit, Lock-On all built and logic-verified. All 5 games' skins now done too (Echo/Circuit/Lock-On skinned in the Phase 4 batch, §9d; Gatekeeper/Trigger skins were done earlier) |
-| 3 — Flow + scoring + results | Complete funnel | Done — 3.1 (sequence wrapper), 3.2 (scoring engine), and 3.3 (results screen: score/radar/insights + email capture/share card) all built, verified against live Supabase data, reviewed, committed |
+| 3 — Flow + scoring + results | Complete funnel | Done — 3.1 (sequence wrapper), 3.2 (scoring engine), 3.3 (results screen: score/radar/insights + email capture/share card) all built, verified, reviewed, committed. 3.4 (standing Playwright e2e suite) added later, also done — §9h |
 | 4 — Polish + PWA | Feels pro, works on phones | In progress — game-skin batch complete (§9d). **Shell pages: all five core shells done** — Home, Science, About, Product, Privacy & Disclaimer (§8a). **Shell↔lab transition: both directions done** — entry (Home→/test) and exit (results→shell) share one `ZoneSweep` primitive, both verified live (§8b). **Responsive polish pass (4.3) done** — every page/game/results screen audited and 3 real bugs fixed (§9g). Remaining Phase 4 scope: Content/Blog page (deferred — later SEO phase); the PWA manifest; and the still-outstanding real-phone check of all five shell pages, now also covering the 4.3 fixes (§11) |
 | 5 — Integration + handoff | Live + connected | Not started |
 
@@ -520,6 +509,9 @@ Additional lessons from Phase 1-3.2, now standing practice:
 - **For a presentation-only change, don't build automation for game mechanics the change doesn't touch** (§8b) — verifying the results→shell exit sweep needed a real completed results screen, but hand-automating all 5 games' inputs (Lock-On's canvas tracking especially) was solved instead by having a human play live in a real Chrome tab (launched with `--remote-debugging-port`) and attaching Playwright to that exact tab via `connect_over_cdp`. Reach for this whenever the thing under test is downstream of application state that's expensive to synthesize but easy for a human to produce once.
 - **Base UI's `nativeButton={false}` composition renders `role="button"`, not `role="link"`** (§8b) — a Playwright `get_by_role("link", ...)` query against one of these can silently match an unrelated plain `<a>` elsewhere on the page with the same visible text instead (here: the footer's real nav link, same CTA copy as `EnterLabButton`/`ExitLabLink`). Query `role="button"` for any component built on this pattern.
 - **CSS `text-transform: uppercase` (or similar) changes what `innerText`/Playwright's `inner_text()` returns** — browsers compute it post-style, so scraped text comes back uppercased even though the source string isn't. Match case-insensitively when scraping text inside an uppercase-styled ancestor (common throughout this app's mono-uppercase HUD labels, §6).
+- **§9d's "Lock-On automation is impractical" gap was specific to the browser-pane tool's per-tool-call round-trip latency, not to automation generally** (§9h) — a `@playwright/test` script running `page.evaluate` executes in-process (sub-millisecond), so real marking-phase target detection + motion tracking via canvas pixel reads is genuinely feasible there, and was built (`tests/e2e/helpers/lockon.ts`). Don't assume a documented harness limitation transfers to a different tool with a different execution model.
+- **A detection window (box/annulus/etc.) around one object must stay smaller than the game's own minimum-separation guarantee, or it can pick up a neighboring object's signal** (§9h) — a ±40px box for reading Lock-On's marking-phase reticle false-positived at the game's 54px minimum spawn gap; fixed by shrinking to the ring's own thin annulus (22–26px), which is provably safe at that gap. When pixel-sampling near one of several close-together rendered elements, size the sample region against the layout's own documented minimum spacing, not a round guess.
+- **Client-side step/wizard state that isn't URL-backed doesn't survive a reload** (§9h) — `/test`'s sequence-wrapper step lives in plain `useState`; reloading always drops back to the intro screen, even mid-result-viewing, matching the app's own "refresh mid-run restarts as a new run" policy. Don't assume "reload the page" is a valid way to re-trigger a component remount in an app like this — check whether the state you want to revisit is actually addressable by URL first.
 
 ## 12. Skills & Plugins in Use
 
@@ -530,7 +522,9 @@ Project skills (.claude/skills/ — now correctly committed to the repo at proje
 
 Installed plugins (user scope):
 - pr-review-toolkit — review gate before measurement-logic commits and phase-end QA. Don't overuse on trivial changes — 12 agents, real token cost.
-- example-skills (anthropic-agent-skills marketplace) — includes the Playwright web-app testing skill.
+- example-skills (anthropic-agent-skills marketplace) — includes the Playwright web-app testing skill; now largely superseded for e2e work by the checked-in suite below.
+
+Standing e2e suite (Step 3.4, §9h): `tests/e2e/` + `playwright.config.ts`, `@playwright/test` (real devDependency), run via `npm run test:e2e`. Covers all 5 games' practice+scored rounds through to the results screen, live against the dev server + real Supabase.
 
 MCP servers (user scope, Phase 3.3):
 - Supabase MCP — read-only, scoped to this project's ref via `--read-only --project-ref=...`. Registered at **user** scope specifically; registering it at project/directory scope first meant it silently didn't load from this repo's working directory (`claude mcp list` showed it registered under the wrong project path) — re-registering with `--scope user` fixed it, and this is now the working setup. Supersedes the old "temporary /dev/... debug page" pattern for reads (§11); still can't write, so migrations still go through the Supabase SQL editor by hand.
