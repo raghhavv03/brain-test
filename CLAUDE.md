@@ -24,10 +24,18 @@ Phase 4 (polish/PWA) in progress. Shipped so far:
   results→shell exit sweep, sharing one primitive
   (src/components/shell/zone-sweep.tsx). Both verified live, reduced-motion
   respected. Detail: §8a, §8b.
+- Responsive polish pass (4.3, closed): every shell page, the /test
+  sequence, all five games, and the results screen audited at 375/768/1280px
+  via Playwright. Found and fixed 3 real bugs — Home hero tablet-width
+  overflow, Circuit node crowding on mobile, Lock-On mobile tap-tolerance —
+  all layout/hit-testing only, no science-rule surface touched.
+  pr-review-toolkit clean; live-Supabase-verified (real Circuit/Lock-On runs
+  plus a live results-screen check via CDP). Detail: §9g.
 
-Remaining Phase 4 scope: Content/Blog page (deferred, later SEO phase); a
-full responsive polish pass; the PWA manifest; a real-phone check of all
-five shell pages (§11).
+Remaining Phase 4 scope: Content/Blog page (deferred, later SEO phase); the
+PWA manifest; a real-phone check of all five shell pages, now also covering
+the 4.3 responsive fixes (§11) — verified so far via emulated
+viewports/Playwright only, not a physical device.
 
 Two post-launch production incidents (iOS Safari session-integrity data
 loss; an over-strict halt policy costing a full run on one dropped save)

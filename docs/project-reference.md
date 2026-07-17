@@ -355,6 +355,121 @@ This is §9e's halt policy working as designed, but the policy itself was too st
 - `502`/`504`/`429` currently fail fast rather than retry — a real gap (Supabase's edge/gateway layer can emit these transiently, independent of PostgREST's own `503`), left as a deliberate, conscious choice rather than expanding `isTransient` speculatively; revisit if these show up in practice.
 - The existence-check guard can false-positive across independent standalone (`run_id: null`) replays of the same game by the same session (matching an unrelated earlier visit's row instead of confirming the current one) — impact is nil, since standalone plays are never scored and the partial unique index deliberately excludes them from the duplicate-prevention guarantee too.
 
+### 9g. Phase 4.3 — Responsive Polish Pass (July 2026)
+
+Scope: layout/CSS only, across every page and screen in the app — all five
+shell pages, the `/test` sequence wrapper's intro, all five games (via their
+standalone `/trigger` etc. routes), and the results screen — at 375px
+(mobile), 768px (tablet), and 1280px (desktop). No game logic, timing, or
+scoring touched anywhere in this pass; Product and Privacy specifically
+hadn't had a mobile/tablet pass since being built (§8a's second batch was
+verified full-page but not against a mobile viewport).
+
+**Method — visual evidence, not code-reading.** Python Playwright
+(`~/.pyenv/versions/3.12.5/bin/python`, per §11's standing lesson) screenshot
+every route at all three breakpoints, plus a systematic
+`document.documentElement.scrollWidth > viewportWidth` scan across every
+route × breakpoint combination — the scan caught the one real overflow bug
+below that eyeballing screenshots alone had already passed over once.
+
+**Three real bugs found, all fixed:**
+1. **Home hero, horizontal overflow at exactly the 768px tablet breakpoint**
+   (confirmed via the scan: document 904px wide against a 768px viewport,
+   nowhere else). Root cause: `md:grid-cols-[1fr_auto]`
+   (`src/app/page.tsx`) — a bare CSS Grid `1fr` track defaults its minimum
+   width to its content's min-content, not zero. The h1's longest word
+   (`[PLACEHOLDER]` at `md:text-6xl`) needed ~464px; only ~304px was
+   available in that column at 768px, so the whole grid — and the page —
+   overflowed sideways. Not reproducible at mobile (column stacks, `md:`
+   inactive) or desktop (enough room for the same min-content). Fix:
+   `md:grid-cols-[minmax(0,1fr)_auto]` — one line, re-verified clean via the
+   same scan afterward, zero flags across every route/breakpoint.
+2. **Lock-On, undersized tap targets on mobile.** `OBJECT_RADIUS` (18,
+   ARENA-space, ARENA = 600×400) and the existing `HIT_PAD_PX` (10,
+   also ARENA-space) both shrink proportionally when the canvas renders
+   below its native 600px width — at mobile the canvas displays at ~277px
+   (0.46× scale), putting the effective on-screen hit radius at ~13px,
+   under any reasonable touch-target minimum. Fix, in
+   `src/components/games/lockon-game.tsx`: added
+   `MIN_TOUCH_HIT_RADIUS_PX = 22` and, in `handlePointerDown`,
+   `hitRadius = Math.max(OBJECT_RADIUS + HIT_PAD_PX, MIN_TOUCH_HIT_RADIUS_PX / displayScale)`
+   in place of the old fixed threshold. `OBJECT_RADIUS` itself — physics,
+   rendering, sprite sizing — is untouched everywhere else; only the local
+   hit-test threshold changed. At `displayScale >= 1` (tablet/desktop) this
+   algebraically collapses to the exact old value (28), confirmed by
+   pr-review-toolkit doing the arithmetic directly rather than trusting the
+   comment.
+3. **Circuit, node crowding/overlap on mobile.** Node buttons were a
+   CSS-fixed 44×44px (`h-11 w-11`) at every breakpoint, but node centers
+   live in a 600×400 "board space" (`MIN_GAP = 70` between centers,
+   `src/lib/circuit/board.ts`) that itself renders at a shrunk scale on
+   mobile — center-to-center spacing shrinks to ~37px while node diameter
+   stayed fixed at 44px, so nodes visually and functionally overlapped
+   (confirmed in screenshots: e.g. adjacent nodes' circles overlapping).
+   Fix, in `src/components/circuit/circuit-board.tsx`: `container-type:
+   inline-size` on the board container, node size now
+   `clamp(32px, 7.3333cqw, 44px)` (`(NODE_DIAMETER_PX / BOARD.width) * 100`)
+   instead of the fixed Tailwind size classes — diameter now scales down
+   proportionally with the board's own rendered width, floored at 32px,
+   capped at the original 44px. `circuit-board.tsx` is purely presentational
+   (`onNodeTap` passed in as a prop); `board.ts`'s `MIN_GAP`/
+   `SPAWN_MARGIN`/`SEQUENCE` and `elapsed_since_first_tap_ms` in
+   `circuit-game.tsx` are untouched by this diff.
+
+**Ruled out, not bugs (worth recording so a future pass doesn't re-flag
+them):**
+- Ghost/duplicated text visible near the top of some full-page Playwright
+  screenshots (e.g. `/about`) — a Chromium full-page-capture compositing
+  artifact from the sticky header's `backdrop-blur`
+  (`src/components/shell/site-header.tsx`), not a real rendering bug. A
+  viewport-only crop of the same page at the same scroll position is clean.
+  If a future full-page screenshot on this app shows text bleeding through
+  near a sticky/blurred header, check a plain viewport screenshot before
+  treating it as a real defect.
+- Gatekeeper's response "zone" — the go/no-go response listener is bound at
+  `window` level (any tap or keypress anywhere counts), not to a bounded
+  DOM element, so there is no touch-target sizing concern there despite the
+  visual circle being the only thing on screen.
+
+**Review and verification.**
+- `npm run typecheck` clean after every edit.
+- pr-review-toolkit run on the Circuit/Lock-On diff specifically (interaction/
+  hit-testing layer, per CLAUDE.md skill rules) — clean, no findings at or
+  above the reporting threshold. Independently re-derived the
+  `displayScale` algebra and traced the `rect.width === 0` edge case
+  (coupled through the same variable that would also make `nearestDist`
+  non-finite, so `nearest` stays `-1` and `hitRadius` is never reached in a
+  false-positive state).
+- Live Supabase verification, both real automated runs via the standalone
+  `/circuit` and `/lockon` routes at 375px width: Circuit — 16/16 taps
+  correct, 0 errors, `elapsed_since_first_tap_ms` chain intact, every
+  `stimulus.expected` matched `response.tapped`. Lock-On — 3 taps placed on
+  3 real, distinct orb positions (found via pixel-blob detection on the
+  canvas output, not guessed) resolved to `selected_indices` matching
+  exactly those 3 orbs, no cross-registration onto a neighboring orb despite
+  the larger tolerance; saved `response`/`correct_count`/`accuracy` matched
+  the on-screen result exactly.
+- Results screen + radar, live-verified via the §8b technique (a human
+  played a real full 5-game run; Playwright attached via `connect_over_cdp`
+  to that tab and resized its viewport across all three breakpoints) — clean
+  at all three, radar and domain bars reflow correctly, no overflow
+  (`scrollWidth` matched viewport exactly at 375/768/1280).
+- `npm run test` — 43/43 Vitest passing throughout (scoring engine
+  untouched; sanity check only).
+
+**Test-data hygiene.** The Circuit/Lock-On automated verification rows were
+confirmed already cleared from `trials` before cleanup was requested (gone
+by the time a delete query was needed — nothing to do there). The live
+results-screen verification run (`run_id 1406ec6b-ea50-42a5-9ff3-45f6d59a6a48`,
+134 trials + 1 results row) had a cleanup query handed off for the SQL
+editor; confirm it's been run before treating the tables as clean for the
+next phase.
+
+**Known, accepted gap:** this pass verified emulated viewports only
+(Playwright device-width emulation, not a physical phone) — the real-phone
+check flagged as outstanding since §8a/§8b (§10, §11) still hasn't happened,
+and now covers these three fixes too, not just the original shell pages.
+
 ## 10. Build Order
 
 | Phase | Goal | Status |
@@ -363,7 +478,7 @@ This is §9e's halt policy working as designed, but the policy itself was too st
 | 1 — Engine + Trigger | One game measuring + saving correctly | Done — engine verified, Trigger built/skinned/reviewed/committed/pushed |
 | 2 — Rest of battery | All 5 games | Done — Gatekeeper, Echo, Circuit, Lock-On all built and logic-verified. All 5 games' skins now done too (Echo/Circuit/Lock-On skinned in the Phase 4 batch, §9d; Gatekeeper/Trigger skins were done earlier) |
 | 3 — Flow + scoring + results | Complete funnel | Done — 3.1 (sequence wrapper), 3.2 (scoring engine), and 3.3 (results screen: score/radar/insights + email capture/share card) all built, verified against live Supabase data, reviewed, committed |
-| 4 — Polish + PWA | Feels pro, works on phones | In progress — game-skin batch complete (§9d). **Shell pages: all five core shells done** — Home, Science, About, Product, Privacy & Disclaimer (§8a). **Shell↔lab transition: both directions done** — entry (Home→/test) and exit (results→shell) share one `ZoneSweep` primitive, both verified live (§8b). Remaining Phase 4 scope: Content/Blog page (deferred — later SEO phase); a full responsive polish pass; the PWA manifest; and the still-outstanding real-phone check of all five shell pages (§11) |
+| 4 — Polish + PWA | Feels pro, works on phones | In progress — game-skin batch complete (§9d). **Shell pages: all five core shells done** — Home, Science, About, Product, Privacy & Disclaimer (§8a). **Shell↔lab transition: both directions done** — entry (Home→/test) and exit (results→shell) share one `ZoneSweep` primitive, both verified live (§8b). **Responsive polish pass (4.3) done** — every page/game/results screen audited and 3 real bugs fixed (§9g). Remaining Phase 4 scope: Content/Blog page (deferred — later SEO phase); the PWA manifest; and the still-outstanding real-phone check of all five shell pages, now also covering the 4.3 fixes (§11) |
 | 5 — Integration + handoff | Live + connected | Not started |
 
 **Post-launch production incidents (outside the phase sequence above).** Two, both after the Phase 4.2 shell-page work, both from real user reports, neither phase-scoped in the build-order sense (every affected piece — the measurement engine, the games, the sequence wrapper — was already "Done" per the table above):
@@ -389,7 +504,10 @@ Additional lessons from Phase 1-3.2, now standing practice:
 - A schema assumption that held for one table (e.g. a unique constraint) does not automatically hold for a sibling table — `leads` had no unique constraint where `results` did, despite both looking superficially similar. Always confirm the actual constraints (`pg_constraint`/`pg_indexes`), don't infer from a table's role.
 - `next build` passing is not proof of a clean typecheck (Phase 4). Its TypeScript check only walks files reachable from the app's route import graph, not everything `tsconfig.json`'s `include` covers — a test file nothing imports can carry real `tsc` errors invisibly for phases at a time (§9d: 25 errors in `insights.test.ts`, present since Phase 3.3a, unnoticed until an explicit `npm run typecheck` run). Run `npm run typecheck` (`tsc --noEmit`) as its own step, don't rely on build output alone.
 - Automated browser-tool round-trip latency can exceed a short timed UI window. Lock-On's ~2.25s marking phase elapsed before a screenshot request could ever return, making it impractical to visually verify or interact with that phase via this harness (§9d). When a game has a sub-3s critical window, plan verification around what's actually observable after the fact (saved timing fields, final state) rather than trying to react to the window live.
-- **Real-phone check still pending for the Phase 4.2 shell pages.** §11's "real phone check ... all games by Phase 4" line covers the games (done, §9d); it has not yet been extended to the shell pages (Home hero animation/perf, the shell→lab sweep, responsive layout on Science/About, and the second-batch Product + Privacy pages). Emulated desktop/mobile viewports were verified (see below), which is not a substitute — do this before the shell pages are considered fully verified, not just before ship.
+- **Real-phone check still pending for the Phase 4.2 shell pages and the Phase 4.3 responsive fixes.** §11's "real phone check ... all games by Phase 4" line covers the games (done, §9d); it has not yet been extended to the shell pages (Home hero animation/perf, the shell→lab sweep, responsive layout on Science/About, and the second-batch Product + Privacy pages) or to the three 4.3 fixes (§9g). Emulated desktop/mobile viewports were verified (see below and §9g), which is not a substitute — do this before any of it is considered fully verified, not just before ship.
+- **A CSS Grid `1fr` track's minimum width defaults to its content's min-content, not zero** (§9g) — `grid-template-columns: 1fr auto` (no `minmax(0,1fr)`) let a heading's longest unbreakable word force the whole grid past its container at one specific breakpoint (768px), producing a page-wide horizontal scrollbar that wasn't visible at mobile (column stacks) or desktop (enough room). A `document.documentElement.scrollWidth > viewportWidth` scan across every route × breakpoint caught it where screenshot-eyeballing alone had already missed it once. Any grid track meant to shrink with its container needs an explicit `minmax(0, ...)`, and a scripted overflow scan is worth running as a matter of course on any responsive pass, not just visual review.
+- **CSS container queries (`container-type: inline-size` + `cqw`/`clamp()`) can keep a UI element's size proportional to its own rendered container, not the viewport** (§9g) — used to shrink Circuit's node buttons in lockstep with the board's own scale-down on narrow screens (floored at a hard minimum), preserving the same gap:diameter ratio that was already safe at native size, instead of holding a fixed pixel size while the surrounding board shrinks around it and the spacing guarantee silently breaks.
+- **A Chromium full-page Playwright screenshot can show ghosted/duplicated text near a sticky element with `backdrop-filter: blur()`** (§9g) — a compositing artifact of the full-page capture, not a real rendering bug. A plain viewport-only screenshot (or crop) of the same scroll position is the way to confirm before treating it as a defect.
 - **The in-app browser-pane harness pauses `requestAnimationFrame` and page compositing when the pane is backgrounded between tool calls** (`document.visibilityState` goes `hidden`), which froze Framer Motion animations mid-keyframe and, after programmatic scrolls, sometimes returned blank background-only screenshots even though the DOM was healthy (confirmed via computed-style/rect inspection before concluding it was a harness artifact, not an app bug — reloading the page recovered top-of-page screenshots). Working pattern for this and future sessions: drive verification of anything animation-, reduced-motion-, or scroll-dependent through a standalone Python Playwright script instead of the browser-pane tool. `prefers-reduced-motion` specifically requires this — the pane has no way to emulate the media query at all, only Playwright's `browser.new_context(reduced_motion="reduce")` does. Note the environment detail: plain `python`/`python3` resolves to a pyenv version without Playwright installed; `~/.pyenv/versions/3.12.5/bin/python` is the one with it.
 - **A config dashboard's current value is not proof of what's actually live** (§9e). Next.js inlines `NEXT_PUBLIC_*` env vars into the client bundle at build time — a Vercel dashboard showing an empty/wrong value only means the *next* build would break, not that production is broken right now. When production behavior is genuinely in question, fetch and inspect the deployed JS bundle directly (or equivalent for the platform), don't stop at the config UI.
 - **A `.catch(() => false)` (or any error-swallowing pattern) on a write to an RLS-protected table is a distinct, higher-severity hazard than ordinary error handling** (§9e) — it doesn't just hide a bug, it silently converts a should-be-loud auth/permission failure into data that looks like it saved. Any write path guarded by RLS should be treated as needing visible failure surfacing by default, not opt-in.
