@@ -459,6 +459,46 @@ correctly zero-overlap with true targets), 1 results row with all 5 domains
 second upsert. Scope: the 5 games + results only — no email capture or
 share-card checks (results-screen part (b), §9c, out of scope).
 
+### 9i. PWA Manifest (Step 4.5, closed — July 2026)
+
+Scope: installability only. `src/app/manifest.ts` (Next.js App Router native
+metadata file — auto-served at `/manifest.webmanifest`, auto-injects its own
+`<link rel="manifest">`, no static JSON to hand-sync): name, short_name,
+`start_url: "/"`, `display: "standalone"`, `background_color`/`theme_color`
+pulled from the shell design tokens (`#fafafa`/`#2563eb`, §8), not
+hardcoded independent of them. `viewport` export added to
+`src/app/layout.tsx` (Next's post-13.4 split of theme-color out of
+`metadata` into its own export) sets the same `#2563eb` theme-color meta tag.
+
+**Icons.** No brand logo existed anywhere in the repo (`public/` held only
+Next.js's default SVGs) — flagged before fabricating anything, per user
+decision: generate a placeholder rather than skip icons, same swap-later
+posture as the landing hero's placeholder bottle (§8a). `public/icons/
+icon-source.svg` (blue `--primary` circle + white "B" monogram on shell
+`--background`) rasterized to `icon-192.png`, `icon-512.png` (both
+`purpose: "any"`), and `icon-maskable-512.png` (circle sized to ~78% of the
+canvas, inside the standard maskable safe zone) via a throwaway Playwright
+screenshot script — no SVG rasterizer (`rsvg-convert`/ImageMagick/Inkscape)
+was installed, and Playwright's Chromium was already present from the e2e
+suite (§9h), so reused it rather than adding a new dependency. Swap-in
+contract for the real logo: replace the three PNGs under `public/icons/`
+(same filenames/sizes), `manifest.ts` needs no changes.
+
+**No service worker.** Confirmed out of scope before starting — a manifest
+alone makes the site installable; offline caching is a separate, larger
+decision (cache strategy for dark lab routes vs. light shell routes,
+Supabase writes while offline, etc.) not bundled in silently.
+
+**Verification.** `npm run typecheck` clean. Live in-browser: `/
+manifest.webmanifest` returns 200 with the expected JSON; exactly one
+`<link rel="manifest">` and one `<meta name="theme-color">` in `<head>` (no
+duplication between Next's auto-injected tag and the explicit
+`metadata.manifest` pointer — both resolve to the same href); `/icons/
+icon-512.png` renders correctly (screenshot-verified). Not yet verified: a
+real install prompt/home-screen icon on a physical device — folded into the
+existing real-phone-check gap (§11), now covering the manifest/icons too,
+not just the 4.2/4.3 shell work.
+
 ## 10. Build Order
 
 | Phase | Goal | Status |
@@ -467,7 +507,7 @@ share-card checks (results-screen part (b), §9c, out of scope).
 | 1 — Engine + Trigger | One game measuring + saving correctly | Done — engine verified, Trigger built/skinned/reviewed/committed/pushed |
 | 2 — Rest of battery | All 5 games | Done — Gatekeeper, Echo, Circuit, Lock-On all built and logic-verified. All 5 games' skins now done too (Echo/Circuit/Lock-On skinned in the Phase 4 batch, §9d; Gatekeeper/Trigger skins were done earlier) |
 | 3 — Flow + scoring + results | Complete funnel | Done — 3.1 (sequence wrapper), 3.2 (scoring engine), 3.3 (results screen: score/radar/insights + email capture/share card) all built, verified, reviewed, committed. 3.4 (standing Playwright e2e suite) added later, also done — §9h |
-| 4 — Polish + PWA | Feels pro, works on phones | In progress — game-skin batch complete (§9d). **Shell pages: all five core shells done** — Home, Science, About, Product, Privacy & Disclaimer (§8a). **Shell↔lab transition: both directions done** — entry (Home→/test) and exit (results→shell) share one `ZoneSweep` primitive, both verified live (§8b). **Responsive polish pass (4.3) done** — every page/game/results screen audited and 3 real bugs fixed (§9g). Remaining Phase 4 scope: Content/Blog page (deferred — later SEO phase); the PWA manifest; and the still-outstanding real-phone check of all five shell pages, now also covering the 4.3 fixes (§11) |
+| 4 — Polish + PWA | Feels pro, works on phones | **Closed** — game-skin batch complete (§9d). **Shell pages: all five core shells done** — Home, Science, About, Product, Privacy & Disclaimer (§8a). **Shell↔lab transition: both directions done** — entry (Home→/test) and exit (results→shell) share one `ZoneSweep` primitive, both verified live (§8b). **Responsive polish pass (4.3) done** — every page/game/results screen audited and 3 real bugs fixed (§9g). **PWA manifest (4.5) done** — installable manifest + placeholder icons + theme-color, no service worker (§9i). Closed with two carried-forward, non-blocking gaps: Content/Blog page (correctly deferred — later SEO phase, §14) and the still-outstanding real-phone check, now also covering the 4.3 fixes and the manifest/icons (§11) |
 | 5 — Integration + handoff | Live + connected | Not started |
 
 **Post-launch production incidents (outside the phase sequence above).** Two, both after the Phase 4.2 shell-page work, both from real user reports, neither phase-scoped in the build-order sense (every affected piece — the measurement engine, the games, the sequence wrapper — was already "Done" per the table above):
@@ -493,7 +533,7 @@ Additional lessons from Phase 1-3.2, now standing practice:
 - A schema assumption that held for one table (e.g. a unique constraint) does not automatically hold for a sibling table — `leads` had no unique constraint where `results` did, despite both looking superficially similar. Always confirm the actual constraints (`pg_constraint`/`pg_indexes`), don't infer from a table's role.
 - `next build` passing is not proof of a clean typecheck (Phase 4). Its TypeScript check only walks files reachable from the app's route import graph, not everything `tsconfig.json`'s `include` covers — a test file nothing imports can carry real `tsc` errors invisibly for phases at a time (§9d: 25 errors in `insights.test.ts`, present since Phase 3.3a, unnoticed until an explicit `npm run typecheck` run). Run `npm run typecheck` (`tsc --noEmit`) as its own step, don't rely on build output alone.
 - Automated browser-tool round-trip latency can exceed a short timed UI window. Lock-On's ~2.25s marking phase elapsed before a screenshot request could ever return, making it impractical to visually verify or interact with that phase via this harness (§9d). When a game has a sub-3s critical window, plan verification around what's actually observable after the fact (saved timing fields, final state) rather than trying to react to the window live.
-- **Real-phone check still pending for the Phase 4.2 shell pages and the Phase 4.3 responsive fixes.** §11's "real phone check ... all games by Phase 4" line covers the games (done, §9d); it has not yet been extended to the shell pages (Home hero animation/perf, the shell→lab sweep, responsive layout on Science/About, and the second-batch Product + Privacy pages) or to the three 4.3 fixes (§9g). Emulated desktop/mobile viewports were verified (see below and §9g), which is not a substitute — do this before any of it is considered fully verified, not just before ship.
+- **Real-phone check still pending for the Phase 4.2 shell pages, the Phase 4.3 responsive fixes, and the Phase 4.5 PWA manifest/icons.** §11's "real phone check ... all games by Phase 4" line covers the games (done, §9d); it has not yet been extended to the shell pages (Home hero animation/perf, the shell→lab sweep, responsive layout on Science/About, and the second-batch Product + Privacy pages), the three 4.3 fixes (§9g), or a real install-prompt/home-screen-icon check for the manifest (§9i). Emulated desktop/mobile viewports (and, for the manifest, browser-pane verification of the served JSON/icons) were checked, which is not a substitute — do this before any of it is considered fully verified, not just before ship.
 - **A CSS Grid `1fr` track's minimum width defaults to its content's min-content, not zero** (§9g) — `grid-template-columns: 1fr auto` (no `minmax(0,1fr)`) let a heading's longest unbreakable word force the whole grid past its container at one specific breakpoint (768px), producing a page-wide horizontal scrollbar that wasn't visible at mobile (column stacks) or desktop (enough room). A `document.documentElement.scrollWidth > viewportWidth` scan across every route × breakpoint caught it where screenshot-eyeballing alone had already missed it once. Any grid track meant to shrink with its container needs an explicit `minmax(0, ...)`, and a scripted overflow scan is worth running as a matter of course on any responsive pass, not just visual review.
 - **CSS container queries (`container-type: inline-size` + `cqw`/`clamp()`) can keep a UI element's size proportional to its own rendered container, not the viewport** (§9g) — used to shrink Circuit's node buttons in lockstep with the board's own scale-down on narrow screens (floored at a hard minimum), preserving the same gap:diameter ratio that was already safe at native size, instead of holding a fixed pixel size while the surrounding board shrinks around it and the spacing guarantee silently breaks.
 - **A Chromium full-page Playwright screenshot can show ghosted/duplicated text near a sticky element with `backdrop-filter: blur()`** (§9g) — a compositing artifact of the full-page capture, not a real rendering bug. A plain viewport-only screenshot (or crop) of the same scroll position is the way to confirm before treating it as a defect.

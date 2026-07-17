@@ -16,7 +16,7 @@ data; sequence wrapper, scoring engine, and results screen (score, radar,
 insights, email capture, share card) all built and verified. Detail:
 project-reference.md §3-§9c.
 
-Phase 4 (polish/PWA) in progress. Shipped so far:
+Phase 4 (polish/PWA) closed. Shipped:
 - All five games skinned to one visual system (§9d).
 - All five core shell pages built: Home, Science, About, Product, Privacy &
   Disclaimer (§8a) — two-tag placeholder convention ([PLACEHOLDER] vs
@@ -37,11 +37,18 @@ Phase 4 (polish/PWA) in progress. Shipped so far:
   the dev server + real Supabase (RLS-respecting reads via a captured anon
   session JWT, never a service-role key). Each per-game helper recomputes
   its own ground truth rather than trusting the app. Detail: §9h.
+- PWA manifest (4.5, closed): `src/app/manifest.ts`, placeholder app icons
+  (`public/icons/`, blue "B" monogram on shell off-white — swap-in-ready,
+  not final brand art), theme-color/viewport wiring in the root layout. No
+  service worker — manifest-only, offline caching deliberately out of scope.
+  Verified live: typecheck clean, manifest served correctly, icons render.
+  Detail: §9i.
 
-Remaining Phase 4 scope: Content/Blog page (deferred, later SEO phase); the
-PWA manifest; a real-phone check of all five shell pages, now also covering
-the 4.3 responsive fixes (§11) — verified so far via emulated
-viewports/Playwright only, not a physical device.
+Phase 4 closed with two known, carried-forward gaps (neither blocks close,
+both already tracked in §11): Content/Blog page (correctly deferred to a
+later SEO phase, §14) and the real-phone check of all five shell pages —
+still verified via emulated viewports/Playwright only, now also covering the
+4.3 responsive fixes and the new manifest/icons.
 
 Two post-launch production incidents (iOS Safari session-integrity data
 loss; an over-strict halt policy costing a full run on one dropped save)
